@@ -1,0 +1,14 @@
+# terraform-access 스택용 Backend 설정 예시
+# 실제 값은 backend.hcl 로 복사하여 사용하며, backend.hcl 은 Git 에 커밋하지 않는다.
+#
+# state-backend 스택이 먼저 생성해둔 S3 Bucket 을 사용하며,
+# State Key 는 dev 인프라 상태와 절대 겹치지 않도록 bootstrap 경로로 분리한다.
+#
+# 초기화 예시:
+#   terraform init -backend-config=backend.hcl
+
+bucket       = "goljugaenyang-tfstate"
+key          = "bootstrap/terraform-access/terraform.tfstate"
+region       = "ap-northeast-2"
+encrypt      = true
+use_lockfile = true

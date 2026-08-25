@@ -1,0 +1,39 @@
+# Terraform 캐시
+**/.terraform/
+
+# Terraform State
+*.tfstate
+*.tfstate.*
+
+# Terraform Plan 산출물
+*.tfplan
+tfplan
+
+# 실제 환경 변수 값
+*.tfvars
+!*.tfvars.example
+
+# Backend 실제 설정
+backend.hcl
+!backend.hcl.example
+
+# 환경 변수 및 Secret
+.env
+.env.*
+*.pem
+*.key
+
+# Kubernetes 설정
+kubeconfig
+*.kubeconfig
+
+# IDE
+.vscode/
+.idea/
+
+# Claude Code (팀 공유 안 함, 개인 로컬 설정)
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db

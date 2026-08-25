@@ -237,7 +237,75 @@ Bucket 은 `terraform/bootstrap/state-backend` 스택에서만 생성/관리한�
 
 ---
 
-## 8. Prod 환경 추가 시 검토 항목
+## 8. AWS 계정 발급 전 작업 원칙
+
+프로젝트 초기에는 AWS 계정이 아직 발급되지 않아 실제 `terraform plan` / `terraform apply` 를 통한
+리소스 생성·검증까지는 수행할 수 없다. 이 경우 다음 원칙으로 진행한다.
+
+**핵심 원칙: 정적 검증까지는 지금 완료하고, AWS API 가 필요한 검증만 TODO 로 분리한다.**
+
+### 지금 가능한 작업 (AWS 계정 없이)
+
+- Terraform 코드 작성 (`*.tf`, `variables.tf`, `outputs.tf`)
+- `terraform.tfvars.example`, `backend.hcl.example` 작성
+- 문서 (`README.md`, `docs/architecture.md`) 작성
+- 정적 검증 3종:
+
+```bash
+cd terraform/<stack>
+terraform init -backend=false   # AWS API 호출 없이 provider 만 초기화
+terraform fmt -recursive        # 포맷 정리
+terraform validate              # 문법 / 참조 / 블록 구조 검증
+```
+
+- `.gitignore` 로 민감 파일 차단 확인:
+
+```bash
+git ls-files | grep -E '(\.tfstate|terraform\.tfvars$|backend\.hcl$|\.env$|\.pem$|\.key$)'
+# → 아무 출력도 없어야 정상
+```
+
+### AWS 계정 발급 후 이어서 할 작업
+
+- `aws sts get-caller-identity` 로 자격 증명 확인
+- `terraform init -backend-config=backend.hcl` (실제 원격 backend 연결)
+- `terraform plan` → `terraform apply`
+- AWS Console / CLI 로 리소스와 보안 옵션 실제 적용 상태 확인
+
+### PR 에는 검증 상태를 명시적으로 남긴다
+
+AWS 계정 없이 코드만 먼저 merge 해야 하는 경우, PR 본문에 어디까지 검증했는지 체크리스트로 기록한다.
+
+```markdown
+## 검증
+- [x] terraform init (-backend=false)
+- [x] terraform fmt -recursive
+- [x] terraform validate
+- [ ] terraform plan — AWS 계정 발급 후 진행
+- [ ] terraform apply — AWS 계정 발급 후 진행
+- [ ] AWS 리소스 실제 상태 확인 — AWS 계정 발급 후 진행
+```
+
+이렇게 하면 "미검증 상태로 그냥 merge" 가 아니라 "현재 환경에서 가능한 검증까지는 마쳤다" 가 명확하게 기록된다.
+
+### 브랜치별 실제 검증 순서 (계정 발급 후)
+
+Bootstrap 스택은 자기 자신을 저장할 Bucket 이 없으므로 최초 1회는 로컬 state 로 시작하고,
+그 뒤 다른 스택은 이 Bucket 을 원격 backend 로 사용한다.
+
+```text
+1. feat/state-backend    (로컬 state, S3 Bucket 생성)
+2. feat/bootstrap-iam    (state-backend Bucket 사용, Terraform 실행 Role / OIDC)
+3. feat/network          (dev/terraform.tfstate)
+4. feat/iam
+5. feat/eks
+6. feat/ecr
+7. feat/s3
+```
+
+---
+
+## 9. Prod 환경 추가 시 검토 항목
 
 `prod` 환경을 추가할 때에는 아래 항목을 별도로 설계한다.
 

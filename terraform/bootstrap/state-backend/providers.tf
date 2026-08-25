@@ -15,6 +15,16 @@ terraform {
 }
 
 # 실제 리소스 정의는 main.tf 에 작성한다.
+# default_tags 로 이 스택이 만드는 모든 AWS 리소스에 공통 태그가 자동 부여된다.
 provider "aws" {
   region = var.aws_region
+
+  default_tags {
+    tags = {
+      Project     = var.project_name
+      Environment = "bootstrap"
+      ManagedBy   = "Terraform"
+      Stack       = "state-backend"
+    }
+  }
 }

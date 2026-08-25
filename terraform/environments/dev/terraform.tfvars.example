@@ -1,0 +1,11 @@
+# Dev 환경 tfvars 예시 파일
+# 실제 값은 terraform.tfvars 로 복사하여 사용하며, terraform.tfvars 는 Git 에 커밋하지 않는다.
+
+aws_region   = "ap-northeast-2"
+project_name = "goljugaenyang"
+environment  = "dev"
+vpc_cidr     = "10.10.0.0/16"
+
+# MSA 서비스 목록이 확정된 이후 채워 넣는다.
+# 예: ["user-service", "product-service", "order-service"]
+ecr_repository_names = []

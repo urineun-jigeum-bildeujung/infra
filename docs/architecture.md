@@ -144,7 +144,96 @@ State Key 는 서로 겹치지 않도록 분리한다.
 
 ---
 
-## 5. 모듈 구성
+## 5. Bootstrap 담당자 최초 실행 절차
+
+Bootstrap 스택(`state-backend`, `terraform-access`)은 **팀 전체에서 딱 1명의 담당자가 최초 1번만 apply** 한다.
+이후에는 함부로 삭제·재생성하지 않고 유지된다. 팀원 온보딩과 명확히 구분되는 절차이므로 반드시 담당자가 이 절차대로 진행한 뒤 팀에 공유 정보를 배포한다.
+
+### 사전 조건
+
+- AWS Console 접근 가능한 IAM 사용자 계정 + 해당 사용자의 Access Key
+- 담당자 로컬 환경에 Terraform 1.10+ / AWS CLI v2 / Bash 설치
+- `aws sts get-caller-identity` 로 대상 AWS Account 확인
+
+### Step 1. state-backend 최초 apply (로컬 state 사용)
+
+이 스택은 **State 저장용 S3 Bucket 자기 자신을 만드는 단계**이므로, 자기 자신을 저장할 remote backend 가 아직 없다.
+따라서 최초 1회는 반드시 **로컬 state 로 apply** 한다.
+
+```bash
+git clone https://github.com/urineun-jigeum-bildeujung/infra.git
+cd infra
+
+# AWS 자격 증명 설정
+aws configure --profile goljugaenyang
+export AWS_PROFILE=goljugaenyang
+aws sts get-caller-identity   # Account 확인
+
+cd terraform/bootstrap/state-backend
+
+# 설정 파일 준비
+cp terraform.tfvars.example terraform.tfvars
+# aws_region / project_name / state_bucket_name 값 입력
+
+# 최초 apply (backend "s3" 없이 로컬 state)
+terraform init
+terraform apply
+# → State S3 Bucket 생성됨
+```
+
+**⚠️ 결과 관리 주의사항**
+
+- 이 스택의 `terraform.tfstate` 는 **담당자 로컬에만 존재**한다. Git 커밋 절대 금지 (`.gitignore` 로 이미 차단).
+- 담당자는 이 파일을 **안전한 개인 저장소** (1Password, Bitwarden, 회사 secret vault 등) 에 백업한다.
+- 이후 State Bucket 자체 옵션을 수정할 일이 생기면 이 로컬 state 가 필요하다.
+- (선택) 이 스택 자체도 원격 backend 로 이관 가능. 다만 자기 자신을 저장하는 재귀 구조가 되므로 신중히 결정한다.
+
+### Step 2. terraform-access apply (원격 backend 사용)
+
+`feat/bootstrap-iam` 브랜치가 구현·merge 된 상태에서 진행한다.
+
+```bash
+cd terraform/bootstrap/terraform-access
+
+# backend.hcl 준비: Step 1 에서 만든 State Bucket 을 이 스택의 remote backend 로 사용
+cp backend.hcl.example backend.hcl
+# bucket / key(bootstrap/terraform-access/terraform.tfstate) / region 입력
+
+# tfvars 준비
+cp terraform.tfvars.example terraform.tfvars
+# github_org / github_repo / project_name 등 입력
+
+terraform init -backend-config=backend.hcl
+terraform apply
+# → GitHub Actions OIDC Provider, Terraform 실행 Role, State/.tflock 접근 Policy 생성됨
+```
+
+### Step 3. 팀 공유 정보 배포
+
+담당자는 아래 정보를 **팀 내부 문서/위키** (Notion, Confluence, 사내 Wiki, private repo 의 README 등) 에 정리해 팀원에게 공유한다.
+**Slack/카톡 등 평문 채널이나 Git 커밋은 절대 금지.**
+
+| 항목 | 예시 값 | 팀원이 어디에 붙여넣나 |
+|---|---|---|
+| AWS Account ID | `297165773875` | (참고용) |
+| AWS Region | `ap-northeast-2` | `backend.hcl`, `terraform.tfvars` |
+| State Bucket 이름 | `goljugaenyang-tfstate` | `backend.hcl` |
+| Project 이름 | `goljugaenyang` | `terraform.tfvars` |
+| VPC CIDR | `10.10.0.0/16` | `terraform.tfvars` |
+| ECR 서비스 목록 | `["user-service", ...]` | `terraform.tfvars` |
+| GitHub Actions Role ARN | Step 2 output 값 | GitHub Actions workflow yaml |
+
+### Step 4. 팀원 각자에게 IAM 자격 증명 배포
+
+각 팀원의 IAM 사용자를 콘솔에서 미리 만들어두었다면, Access Key 를 **개별적으로 secret manager 를 통해** 전달한다.
+- 각 팀원은 자기 것만 사용, 공유 금지
+- 유출 시 즉시 해당 사용자 Key 비활성화 + 재발급
+
+이후 각 팀원은 [README 의 "팀원 온보딩" 섹션](../README.md#팀원-온보딩-각자-자기-로컬에서-최초-1회) 을 따라 자기 로컬을 세팅한다.
+
+---
+
+## 6. 모듈 구성
 
 `terraform/modules/` 하위의 각 모듈은 공통적으로 다음 파일 구조를 사용한다.
 
@@ -171,7 +260,7 @@ outputs.tf    - 다른 모듈 / Environment 에서 사용할 값 반환
 
 ---
 
-## 6. DEV Environment Root Module
+## 7. DEV Environment Root Module
 
 `terraform/environments/dev/` 는 실제 Terraform 실행 위치이다.
 
@@ -215,7 +304,7 @@ module "eks" {
 
 ---
 
-## 7. DEV 반복 테스트 흐름
+## 8. DEV 반복 테스트 흐름
 
 DEV 환경은 아래 사이클을 안전하게 반복할 수 있어야 한다.
 
@@ -237,7 +326,7 @@ Bucket 은 `terraform/bootstrap/state-backend` 스택에서만 생성/관리한�
 
 ---
 
-## 8. AWS 계정 발급 전 작업 원칙
+## 9. AWS 계정 발급 전 작업 원칙
 
 프로젝트 초기에는 AWS 계정이 아직 발급되지 않아 실제 `terraform plan` / `terraform apply` 를 통한
 리소스 생성·검증까지는 수행할 수 없다. 이 경우 다음 원칙으로 진행한다.
@@ -305,7 +394,7 @@ Bootstrap 스택은 자기 자신을 저장할 Bucket 이 없으므로 최초 1�
 
 ---
 
-## 9. Prod 환경 추가 시 검토 항목
+## 10. Prod 환경 추가 시 검토 항목
 
 `prod` 환경을 추가할 때에는 아래 항목을 별도로 설계한다.
 

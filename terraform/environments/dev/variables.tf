@@ -17,11 +17,38 @@ variable "environment" {
   default     = "dev"
 }
 
+# =============================================================================
+# Network
+# =============================================================================
 variable "vpc_cidr" {
   description = "Dev 환경 VPC 에서 사용할 CIDR 대역"
   type        = string
 }
 
+variable "azs" {
+  description = "리소스를 배치할 Availability Zone 목록"
+  type        = list(string)
+}
+
+variable "public_subnet_cidrs" {
+  description = "Public Subnet CIDR 목록. azs 와 같은 순서/길이여야 한다."
+  type        = list(string)
+}
+
+variable "private_subnet_cidrs" {
+  description = "Private Subnet CIDR 목록. azs 와 같은 순서/길이여야 한다."
+  type        = list(string)
+}
+
+variable "single_nat_gateway" {
+  description = "true 이면 NAT Gateway 1개만 배치 (DEV 비용 절약). false 면 AZ 마다 NAT 하나씩 (HA)."
+  type        = bool
+  default     = true
+}
+
+# =============================================================================
+# ECR (이후 feat/ecr 브랜치에서 사용)
+# =============================================================================
 variable "ecr_repository_names" {
   description = "생성할 ECR Repository 이름 목록. MSA 서비스 단위로 지정한다."
   type        = list(string)

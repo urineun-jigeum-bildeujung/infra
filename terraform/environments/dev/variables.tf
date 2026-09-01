@@ -50,8 +50,9 @@ variable "single_nat_gateway" {
 # EKS
 # =============================================================================
 variable "eks_cluster_version" {
-  description = "EKS 버전. 예: 1.31, 1.32, 1.35 등"
+  description = "EKS 버전. 1.35 는 2026-09 실제 apply 로 검증 완료. tfvars 로 override 가능."
   type        = string
+  default     = "1.35"
 }
 
 variable "eks_endpoint_public_access" {

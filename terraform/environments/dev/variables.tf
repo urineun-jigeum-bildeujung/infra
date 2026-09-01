@@ -112,6 +112,15 @@ variable "eks_node_max_size" {
 # =============================================================================
 # ECR (이후 feat/ecr 브랜치에서 사용)
 # =============================================================================
+# =============================================================================
+# S3 (애플리케이션용)
+# =============================================================================
+variable "s3_bucket_purposes" {
+  description = "애플리케이션용 S3 Bucket 의 용도 목록. 용도별로 <project>-<env>-<용도> Bucket 이 생성된다."
+  type        = list(string)
+  default     = ["static", "product-images", "uploads"]
+}
+
 variable "ecr_repository_names" {
   description = "생성할 ECR Repository 이름 목록. MSA 서비스 단위로 지정한다."
   type        = list(string)

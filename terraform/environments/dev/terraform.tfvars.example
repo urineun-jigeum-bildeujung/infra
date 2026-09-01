@@ -56,8 +56,15 @@ eks_node_min_size       = 1
 eks_node_max_size       = 3
 
 # =============================================================================
-# ECR (이후 feat/ecr 브랜치에서 사용)
+# ECR
 # =============================================================================
-# MSA 서비스 목록이 확정된 이후 채워 넣는다.
-# 예: ["user-service", "product-service", "order-service"]
-ecr_repository_names = []
+# Source of Truth: 백엔드 리포지토리(sever) dev 브랜치의 services/ 디렉터리.
+# 실제 생성 이름은 <project_name>/<service_name> 형태 (예: petflow/auth-service).
+# 백엔드에 새 서비스가 추가되면 이 목록에 이름만 추가한다 (기존 Repository 영향 없음).
+ecr_repository_names = [
+  "auth-service",
+  "member-service",
+  "order-service",
+  "payment-service",
+  "product-service",
+]

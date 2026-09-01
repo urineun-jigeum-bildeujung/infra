@@ -79,6 +79,24 @@ output "eks_ebs_csi_role_arn" {
 #   aws eks update-kubeconfig --name <cluster_name> --region <region> --alias petflow-dev
 
 # =============================================================================
+# Platform IAM (ALB Controller / Karpenter — Pod Identity)
+# =============================================================================
+output "alb_controller_role_arn" {
+  description = "ALB Controller Role ARN (Pod Identity: kube-system/aws-load-balancer-controller)"
+  value       = module.platform_iam.alb_controller_role_arn
+}
+
+output "karpenter_controller_role_arn" {
+  description = "Karpenter Controller Role ARN (Pod Identity: kube-system/karpenter)"
+  value       = module.platform_iam.karpenter_controller_role_arn
+}
+
+output "karpenter_node_role_name" {
+  description = "Karpenter Worker 노드용 Role 이름. GitOps 의 EC2NodeClass spec.role 에 사용."
+  value       = module.platform_iam.karpenter_node_role_name
+}
+
+# =============================================================================
 # ECR
 # =============================================================================
 output "ecr_repository_urls" {

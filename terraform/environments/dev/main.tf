@@ -49,6 +49,16 @@ module "eks" {
   node_max_size       = var.eks_node_max_size
 }
 
+# EKS 위 플랫폼 컴포넌트(ALB Controller, Karpenter)용 IAM — Pod Identity 방식
+module "platform_iam" {
+  source = "../../modules/platform-iam"
+
+  project_name = var.project_name
+  environment  = var.environment
+  aws_region   = var.aws_region
+  cluster_name = module.eks.cluster_name
+}
+
 module "ecr" {
   source = "../../modules/ecr"
 

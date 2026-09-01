@@ -32,11 +32,16 @@ resource "aws_eks_cluster" "main" {
   }
 
   # 인증 방식: API (Access Entry) — 신방식. aws-auth ConfigMap 은 사용하지 않는다.
-  # bootstrap_cluster_creator_admin_permissions=true 로 두면
-  # 최초 apply 하는 IAM 이 자동으로 admin 이 되어 안전장치가 된다.
+  #
+  # bootstrap_cluster_creator_admin_permissions 는 반드시 false 로 유지한다.
+  # true 로 두면 Cluster 생성 순간 AWS 가 apply 실행자를 Access Entry 로 자동 등록하는데,
+  # 아래 aws_eks_access_entry 가 같은 principal 을 다시 만들려다 409 충돌이 발생해
+  # 재실행(멱등성)이 깨진다. 실제로 초기 구축 시 이 문제를 겪고 false 로 확정했다.
+  # 대신 apply 실행자는 반드시 var.cluster_admin_principal_arns 에 자기 ARN 을 포함해야 한다
+  # (비어있으면 variables.tf 의 validation 이 plan 단계에서 차단).
   access_config {
     authentication_mode                         = "API"
-    bootstrap_cluster_creator_admin_permissions = true
+    bootstrap_cluster_creator_admin_permissions = false
   }
 
   tags = {

@@ -30,6 +30,19 @@ output "nat_gateway_public_ips" {
 }
 
 # =============================================================================
+# IAM
+# =============================================================================
+output "eks_cluster_role_arn" {
+  description = "EKS control plane Role ARN. feat/eks 의 aws_eks_cluster 가 이 값을 참조."
+  value       = module.iam.eks_cluster_role_arn
+}
+
+output "eks_node_role_arn" {
+  description = "EKS Worker Node Role ARN. feat/eks 의 aws_eks_node_group 이 이 값을 참조."
+  value       = module.iam.eks_node_role_arn
+}
+
+# =============================================================================
 # 이후 모듈 output 예시 (해당 module 활성화 시 주석 해제)
 # =============================================================================
 # output "eks_cluster_name" { value = module.eks.cluster_name }

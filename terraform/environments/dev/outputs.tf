@@ -43,7 +43,42 @@ output "eks_node_role_arn" {
 }
 
 # =============================================================================
+# EKS
+# =============================================================================
+output "eks_cluster_name" {
+  description = "EKS Cluster 이름 (kubectl update-kubeconfig 명령에 사용)"
+  value       = module.eks.cluster_name
+}
+
+output "eks_cluster_endpoint" {
+  description = "EKS API 서버 endpoint"
+  value       = module.eks.cluster_endpoint
+}
+
+output "eks_cluster_version" {
+  description = "실제 배포된 EKS 버전"
+  value       = module.eks.cluster_version
+}
+
+output "eks_oidc_provider_arn" {
+  description = "EKS OIDC Provider ARN. 이후 IRSA Role 생성 시 modules/iam 에 전달."
+  value       = module.eks.oidc_provider_arn
+}
+
+output "eks_oidc_provider_url" {
+  description = "EKS OIDC Issuer URL (https 접두어 제거됨)"
+  value       = module.eks.oidc_provider_url
+}
+
+output "eks_ebs_csi_role_arn" {
+  description = "EBS CSI Driver 가 사용하는 IAM Role ARN (Pod Identity 부착됨)"
+  value       = module.eks.ebs_csi_role_arn
+}
+
+# kubectl 접근 헬퍼 — output 확인 후 이 명령으로 kubeconfig 갱신
+#   aws eks update-kubeconfig --name <cluster_name> --region <region> --alias petflow-dev
+
+# =============================================================================
 # 이후 모듈 output 예시 (해당 module 활성화 시 주석 해제)
 # =============================================================================
-# output "eks_cluster_name" { value = module.eks.cluster_name }
 # output "ecr_repository_urls" { value = module.ecr.repository_urls }

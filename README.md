@@ -54,8 +54,10 @@ infra/
 │  └─ environments/          # 실제 Terraform 실행 위치 (Root Module)
 │     └─ dev/                # DEV 환경: 위 모듈들을 조립
 │
-└─ scripts/
-   └─ dev/                   # init.sh / plan.sh / apply.sh / destroy.sh
+├─ tinit.sh                  # 프로젝트 루트에서 실행하는 편의 스크립트 (dev 대상)
+├─ tplan.sh
+├─ tapply.sh                 # --auto-approve
+└─ tdestroy.sh               # --auto-approve, 3초 카운트다운 안전장치
 ```
 
 `bootstrap/` 과 `environments/dev/` 는 **생명주기가 다르다**. DEV 인프라를 `terraform destroy` 해도 `bootstrap/` 은 함께 삭제되지 않으므로 Terraform 실행 기반과 State 는 안전하게 유지된다. 자세한 원칙은 [docs/architecture.md](docs/architecture.md) 의 "Bootstrap 과 DEV 인프라의 생명주기 분리" 섹션 참고.
@@ -159,13 +161,15 @@ cp terraform/environments/dev/terraform.tfvars.example \
 
 ### Step 4. Terraform 초기화 + 연결 확인
 
+**모든 명령은 프로젝트 루트(`infra/`)에서 실행한다.**
+
 ```bash
-./scripts/dev/init.sh
+./tinit.sh
 # → 필수 도구 / AWS 인증 / backend.hcl 존재 확인 후
 #    terraform init -backend-config=backend.hcl 실행
 #    성공 시 팀 공유 State S3 Bucket 에 연결됨
 
-./scripts/dev/plan.sh
+./tplan.sh
 # → 실제로 변경될 리소스가 있으면 계획이 보임 (없으면 "No changes")
 ```
 
@@ -181,11 +185,11 @@ git checkout dev && git pull
 git checkout -b feat/<작업이름>
 # ... Terraform 코드 편집 ...
 
-./scripts/dev/plan.sh    # 변경 계획 검토
-./scripts/dev/apply.sh   # 실제 반영
+./tplan.sh      # 변경 계획 검토
+./tapply.sh     # 실제 반영 (--auto-approve 포함)
 
 # 테스트 종료 후 정리
-./scripts/dev/destroy.sh
+./tdestroy.sh   # --auto-approve 포함, 3초 카운트다운 후 실행
 
 git push -u origin feat/<작업이름>
 gh pr create --base dev
@@ -195,12 +199,15 @@ State locking (`use_lockfile = true`) 덕분에 팀원 A 가 apply 중이면 B �
 
 ## 각 스크립트가 하는 일
 
-| Script | 동작 |
-|---|---|
-| `init.sh` | 필수 도구 / 인증 / `backend.hcl` 확인 후 `terraform init -backend-config=backend.hcl` |
-| `plan.sh` | `terraform fmt` + `validate` + `plan` |
-| `apply.sh` | `terraform fmt` + `validate` + `plan -out=tfplan` + `apply tfplan` |
-| `destroy.sh` | `terraform plan -destroy` 후 `terraform destroy` |
+| Script | 위치 | 동작 |
+|---|---|---|
+| `tinit.sh` | 프로젝트 루트 | 필수 도구 / 인증 / `backend.hcl` 확인 후 `terraform init -backend-config=backend.hcl` |
+| `tplan.sh` | 프로젝트 루트 | AWS 인증 확인 → `terraform fmt` + `validate` + `plan` |
+| `tapply.sh` | 프로젝트 루트 | AWS 인증 확인 → `fmt` + `validate` + `apply --auto-approve` |
+| `tdestroy.sh` | 프로젝트 루트 | AWS 인증 확인 → 대상 Account/스택 안내 → 3초 카운트다운 → `destroy --auto-approve` |
+
+모두 `terraform/environments/dev` 를 대상으로 한다. Bootstrap 스택(`state-backend`, `terraform-access`)은 이 스크립트로 조작되지 않는다.
+Bootstrap 스택은 담당자가 해당 디렉터리로 직접 이동해서 `terraform` 명령을 실행한다 ([docs/architecture.md](docs/architecture.md) §5 참고).
 
 ## 다음 참고 문서
 

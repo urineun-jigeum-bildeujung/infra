@@ -180,7 +180,9 @@ data "aws_iam_policy_document" "karpenter_controller" {
     resources = [aws_iam_role.karpenter_node.arn]
   }
 
-  # Karpenter v1 은 EC2NodeClass 기반으로 Instance Profile 을 스스로 생성/관리한다
+  # Karpenter v1 은 EC2NodeClass 기반으로 Instance Profile 을 스스로 생성/관리한다.
+  # ListInstanceProfiles 는 최근 버전 공식 정책에서 명시적으로 요구되는 권한이며
+  # 리소스 조건을 지원하지 않아 "*" 대상이다.
   statement {
     sid    = "ManageInstanceProfiles"
     effect = "Allow"
@@ -191,6 +193,7 @@ data "aws_iam_policy_document" "karpenter_controller" {
       "iam:RemoveRoleFromInstanceProfile",
       "iam:DeleteInstanceProfile",
       "iam:GetInstanceProfile",
+      "iam:ListInstanceProfiles",
     ]
     resources = ["*"]
   }

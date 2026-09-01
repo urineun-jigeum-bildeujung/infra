@@ -113,8 +113,10 @@ data "aws_iam_policy_document" "github_actions_trust" {
 }
 
 resource "aws_iam_role" "github_actions_terraform" {
-  name        = "${var.project_name}-github-actions-terraform"
-  description = "GitHub Actions 에서 이 프로젝트의 Terraform apply / destroy 를 실행하기 위한 Role"
+  name = "${var.project_name}-github-actions-terraform"
+  # AWS IAM description 필드는 ASCII + Latin-1 만 허용하므로 영어로 작성한다.
+  # 한글 설명은 Terraform 코드 주석으로 남긴다.
+  description = "Role assumed by GitHub Actions via OIDC to run Terraform apply/destroy for this project"
 
   assume_role_policy   = data.aws_iam_policy_document.github_actions_trust.json
   max_session_duration = 3600
@@ -162,8 +164,9 @@ data "aws_iam_policy_document" "terraform_state_access" {
 }
 
 resource "aws_iam_policy" "terraform_state_access" {
-  name        = "${var.project_name}-terraform-state-access"
-  description = "Terraform State S3 및 .tflock 파일 접근용 Policy (Bucket 리스팅 + State read/write + Lock read/write/delete)"
+  name = "${var.project_name}-terraform-state-access"
+  # AWS IAM description 필드는 ASCII 만 안전하므로 영어로 작성한다.
+  description = "Terraform State S3 and .tflock access (Bucket list + State read/write + Lock read/write/delete)"
   policy      = data.aws_iam_policy_document.terraform_state_access.json
 }
 

@@ -14,14 +14,14 @@ module "network" {
   single_nat_gateway   = var.single_nat_gateway
 }
 
+module "iam" {
+  source = "../../modules/iam"
+
+  project_name = var.project_name
+}
+
 # 아래 모듈들은 각 기능 브랜치에서 소스 파일이 완성되는 대로 주석을 해제한다.
 
-# module "iam" {
-#   source = "../../modules/iam"
-#
-#   project_name = var.project_name
-# }
-#
 # module "eks" {
 #   source = "../../modules/eks"
 #

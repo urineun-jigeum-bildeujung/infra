@@ -69,10 +69,15 @@ variable "cluster_admin_principal_arns" {
   description = <<-EOT
     Cluster Admin 권한을 부여할 IAM User/Role ARN 목록.
     예: ["arn:aws:iam::297165773875:user/ujibil2"]
-    빈 리스트로 두면 API 인증 모드에서 아무도 kubectl 접근 불가하므로 최소 1개 이상 필요.
+    bootstrap_cluster_creator_admin_permissions=false 이므로 이 목록이 유일한 kubectl 접근 경로다.
+    apply 를 실행하는 본인의 IAM ARN 을 반드시 포함할 것.
   EOT
   type        = list(string)
-  default     = []
+
+  validation {
+    condition     = length(var.cluster_admin_principal_arns) > 0
+    error_message = "cluster_admin_principal_arns 는 최소 1개의 IAM ARN 이 필요하다. 비워두면 아무도 kubectl 로 클러스터에 접근할 수 없다 (bootstrap creator 자동 등록이 꺼져 있음)."
+  }
 }
 
 # =============================================================================

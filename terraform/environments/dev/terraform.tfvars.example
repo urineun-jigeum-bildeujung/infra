@@ -11,7 +11,9 @@ environment  = "dev"
 vpc_cidr = "10.0.0.0/16"
 
 # 2 AZ 구성 (EKS 최소 요구사항 = 2 AZ)
-azs = ["ap-northeast-2a", "ap-northeast-2c"]
+# ⚠️ 노드 인스턴스 타입 c7i-flex.large 는 서울 리전에서 2b / 2d AZ 에서만 제공되어
+#    2a / 2c 가 아닌 2b / 2d 를 사용한다. (확인: aws ec2 describe-instance-type-offerings)
+azs = ["ap-northeast-2b", "ap-northeast-2d"]
 
 # azs 순서와 매칭
 public_subnet_cidrs  = ["10.0.1.0/24", "10.0.2.0/24"]
@@ -43,7 +45,11 @@ eks_cluster_admin_principal_arns = [
 ]
 
 # Managed Node Group
-eks_node_instance_types = ["t3.medium"]
+# ⚠️ 이 계정은 Free Tier eligible 인스턴스만 launch 가능하다 (t3.medium 등은 차단됨).
+#    Free Tier eligible 중 EKS 노드로 실용적인 c7i-flex.large (2 vCPU / 4GB) 를 사용한다.
+#    - t3.micro (1GB) 는 노드당 Pod 슬롯이 4개뿐이라 coredns / ebs-csi 가 스케줄되지 못함 (실측)
+#    - c7i-flex.large 는 서울 리전 2b / 2d AZ 전용 → 위 azs 설정과 반드시 함께 유지
+eks_node_instance_types = ["c7i-flex.large"]
 eks_node_ami_type       = "AL2023_x86_64_STANDARD"
 eks_node_desired_size   = 2
 eks_node_min_size       = 1

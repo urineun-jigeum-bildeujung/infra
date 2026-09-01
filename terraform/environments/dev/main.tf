@@ -49,15 +49,16 @@ module "eks" {
   node_max_size       = var.eks_node_max_size
 }
 
+module "ecr" {
+  source = "../../modules/ecr"
+
+  project_name     = var.project_name
+  repository_names = var.ecr_repository_names
+  # image_tag_mutability / force_delete / lifecycle 설정은 모듈 기본값(DEV 기준) 사용
+}
+
 # 아래 모듈들은 각 기능 브랜치에서 소스 파일이 완성되는 대로 주석을 해제한다.
 
-# module "ecr" {
-#   source = "../../modules/ecr"
-#
-#   project_name     = var.project_name
-#   repository_names = var.ecr_repository_names
-# }
-#
 # module "s3" {
 #   source = "../../modules/s3"
 #

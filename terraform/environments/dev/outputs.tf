@@ -79,6 +79,9 @@ output "eks_ebs_csi_role_arn" {
 #   aws eks update-kubeconfig --name <cluster_name> --region <region> --alias petflow-dev
 
 # =============================================================================
-# 이후 모듈 output 예시 (해당 module 활성화 시 주석 해제)
+# ECR
 # =============================================================================
-# output "ecr_repository_urls" { value = module.ecr.repository_urls }
+output "ecr_repository_urls" {
+  description = "서비스별 ECR Repository URL map. CI 의 push 대상 / Helm values 의 이미지 경로에 사용."
+  value       = module.ecr.repository_urls
+}

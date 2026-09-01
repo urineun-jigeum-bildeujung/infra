@@ -20,15 +20,37 @@ module "iam" {
   project_name = var.project_name
 }
 
+module "eks" {
+  source = "../../modules/eks"
+
+  project_name = var.project_name
+
+  # Cluster
+  cluster_version    = var.eks_cluster_version
+  cluster_role_arn   = module.iam.eks_cluster_role_arn
+  node_role_arn      = module.iam.eks_node_role_arn
+  vpc_id             = module.network.vpc_id
+  private_subnet_ids = module.network.private_subnet_ids
+  public_subnet_ids  = module.network.public_subnet_ids
+
+  # Endpoint
+  endpoint_public_access  = var.eks_endpoint_public_access
+  endpoint_private_access = var.eks_endpoint_private_access
+  public_access_cidrs     = var.eks_public_access_cidrs
+
+  # Access
+  cluster_admin_principal_arns = var.eks_cluster_admin_principal_arns
+
+  # Node Group
+  node_instance_types = var.eks_node_instance_types
+  node_ami_type       = var.eks_node_ami_type
+  node_desired_size   = var.eks_node_desired_size
+  node_min_size       = var.eks_node_min_size
+  node_max_size       = var.eks_node_max_size
+}
+
 # 아래 모듈들은 각 기능 브랜치에서 소스 파일이 완성되는 대로 주석을 해제한다.
 
-# module "eks" {
-#   source = "../../modules/eks"
-#
-#   project_name       = var.project_name
-#   private_subnet_ids = module.network.private_subnet_ids
-# }
-#
 # module "ecr" {
 #   source = "../../modules/ecr"
 #

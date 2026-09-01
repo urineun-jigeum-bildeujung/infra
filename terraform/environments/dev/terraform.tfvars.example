@@ -22,6 +22,34 @@ private_subnet_cidrs = ["10.0.10.0/24", "10.0.20.0/24"]
 single_nat_gateway = true
 
 # =============================================================================
+# EKS
+# =============================================================================
+# EKS 버전. AWS 지원 버전 목록: aws eks describe-cluster-versions
+# 초기 결정: 1.35
+eks_cluster_version = "1.35"
+
+# Endpoint 정책 — 초기엔 편의를 위해 Public 도 열고, Tailscale 연결 후 좁힌다.
+#   1단계: public + private, cidrs=0.0.0.0/0        ← 현재
+#   2단계: public + private, cidrs=[관리자 IP 목록]
+#   최종:  private only, Tailscale 로만 접근
+eks_endpoint_public_access  = true
+eks_endpoint_private_access = true
+eks_public_access_cidrs     = ["0.0.0.0/0"]
+
+# Cluster Admin 권한을 부여할 IAM User/Role ARN.
+# 담당자 IAM 사용자 하나만 우선 등록.
+eks_cluster_admin_principal_arns = [
+  "arn:aws:iam::297165773875:user/ujibil2",
+]
+
+# Managed Node Group
+eks_node_instance_types = ["t3.medium"]
+eks_node_ami_type       = "AL2023_x86_64_STANDARD"
+eks_node_desired_size   = 2
+eks_node_min_size       = 1
+eks_node_max_size       = 3
+
+# =============================================================================
 # ECR (이후 feat/ecr 브랜치에서 사용)
 # =============================================================================
 # MSA 서비스 목록이 확정된 이후 채워 넣는다.

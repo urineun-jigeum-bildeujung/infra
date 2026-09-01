@@ -57,10 +57,11 @@ module "ecr" {
   # image_tag_mutability / force_delete / lifecycle 설정은 모듈 기본값(DEV 기준) 사용
 }
 
-# 아래 모듈들은 각 기능 브랜치에서 소스 파일이 완성되는 대로 주석을 해제한다.
+module "s3" {
+  source = "../../modules/s3"
 
-# module "s3" {
-#   source = "../../modules/s3"
-#
-#   project_name = var.project_name
-# }
+  project_name    = var.project_name
+  environment     = var.environment
+  bucket_purposes = var.s3_bucket_purposes
+  # force_destroy / enable_versioning 은 모듈 기본값(DEV 기준) 사용
+}

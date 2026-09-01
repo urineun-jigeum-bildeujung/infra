@@ -85,3 +85,16 @@ output "ecr_repository_urls" {
   description = "서비스별 ECR Repository URL map. CI 의 push 대상 / Helm values 의 이미지 경로에 사용."
   value       = module.ecr.repository_urls
 }
+
+# =============================================================================
+# S3 (애플리케이션용)
+# =============================================================================
+output "s3_bucket_names" {
+  description = "용도별 애플리케이션 S3 Bucket 이름 map. 앱 환경변수 설정에 사용."
+  value       = module.s3.bucket_names
+}
+
+output "s3_bucket_arns" {
+  description = "용도별 애플리케이션 S3 Bucket ARN map. 애플리케이션 IAM 정책 작성에 사용."
+  value       = module.s3.bucket_arns
+}

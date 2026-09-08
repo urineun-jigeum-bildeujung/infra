@@ -20,8 +20,8 @@
 # =============================================================================
 locals {
   # for_each 에 넘기기 위해 AZ 이름을 key 로 하는 map 을 만든다.
-  #   public_subnets_config  = { "ap-northeast-2a" = "10.0.1.0/24",  "ap-northeast-2c" = "10.0.2.0/24" }
-  #   private_subnets_config = { "ap-northeast-2a" = "10.0.10.0/24", "ap-northeast-2c" = "10.0.20.0/24" }
+  #   public_subnets_config  = { "ap-northeast-2b" = "10.0.0.0/24", "ap-northeast-2d" = "10.0.1.0/24" }
+  #   private_subnets_config = { "ap-northeast-2b" = "10.0.4.0/22", "ap-northeast-2d" = "10.0.8.0/22" }
   public_subnets_config  = { for i, az in var.azs : az => var.public_subnet_cidrs[i] }
   private_subnets_config = { for i, az in var.azs : az => var.private_subnet_cidrs[i] }
 

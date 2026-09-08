@@ -11,7 +11,7 @@ variable "aws_region" {
 }
 
 variable "vpc_cidr" {
-  description = "VPC 에서 사용할 CIDR 대역. 예: 10.0.0.0/16"
+  description = "VPC 에서 사용할 CIDR 대역. 예: 10.0.0.0/20"
   type        = string
 }
 

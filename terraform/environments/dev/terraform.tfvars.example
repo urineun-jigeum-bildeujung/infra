@@ -8,16 +8,16 @@ environment  = "dev"
 # =============================================================================
 # Network — 아키텍처 그림 기준 값
 # =============================================================================
-vpc_cidr = "10.0.0.0/16"
+vpc_cidr = "10.0.0.0/20"
 
 # 2 AZ 구성 (EKS 최소 요구사항 = 2 AZ)
 # ⚠️ 노드 인스턴스 타입 c7i-flex.large 는 서울 리전에서 2b / 2d AZ 에서만 제공되어
 #    2a / 2c 가 아닌 2b / 2d 를 사용한다. (확인: aws ec2 describe-instance-type-offerings)
 azs = ["ap-northeast-2b", "ap-northeast-2d"]
 
-# azs 순서와 매칭
-public_subnet_cidrs  = ["10.0.1.0/24", "10.0.2.0/24"]
-private_subnet_cidrs = ["10.0.10.0/24", "10.0.20.0/24"]
+# azs 순서와 매칭. EKS Pod IP 여유를 위해 Private Subnet을 /22로 구성한다.
+public_subnet_cidrs  = ["10.0.0.0/24", "10.0.1.0/24"]
+private_subnet_cidrs = ["10.0.4.0/22", "10.0.8.0/22"]
 
 # DEV 는 비용 절약을 위해 NAT Gateway 1개만 사용 (첫 번째 AZ 에 배치, 두 Private Subnet 이 공유)
 # Prod 로 승격 시 false 로 변경 (AZ 마다 NAT 하나씩 → HA)

@@ -125,13 +125,13 @@ macOS 는 `brew install terraform awscli`, Windows 는 `choco install terraform 
 ### Step 2. AWS 자격 증명 설정 (자기 IAM 사용자로)
 
 ```bash
-aws configure --profile goljugaenyang
+aws configure --profile petflow
 # AWS Access Key ID:     (배정받은 자기 Key)
 # AWS Secret Access Key: (자기 Secret)
 # Default region name:   ap-northeast-2
 # Default output format: json
 
-export AWS_PROFILE=goljugaenyang
+export AWS_PROFILE=petflow
 # 셸 재시작 시 유지되게 하려면 ~/.bashrc / ~/.zshrc 에 추가
 
 aws sts get-caller-identity

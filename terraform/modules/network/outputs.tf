@@ -45,3 +45,8 @@ output "nat_gateway_public_ips" {
   description = "NAT Gateway 에 연결된 Elastic IP 목록. 외부에서 우리 VPC 로부터의 outbound IP 를 화이트리스트할 때 참고한다."
   value       = [for az in sort(keys(aws_eip.nat)) : aws_eip.nat[az].public_ip]
 }
+
+output "s3_gateway_endpoint_id" {
+  description = "Private Route Table에 연결된 S3 Gateway VPC Endpoint ID"
+  value       = aws_vpc_endpoint.s3.id
+}

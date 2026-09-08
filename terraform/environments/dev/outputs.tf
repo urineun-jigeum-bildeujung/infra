@@ -9,6 +9,11 @@ output "vpc_id" {
   value       = module.network.vpc_id
 }
 
+output "s3_gateway_endpoint_id" {
+  description = "Private subnet route table에 연결된 S3 Gateway VPC Endpoint ID"
+  value       = module.network.s3_gateway_endpoint_id
+}
+
 output "vpc_cidr" {
   description = "Dev 환경 VPC CIDR"
   value       = module.network.vpc_cidr
@@ -115,4 +120,22 @@ output "s3_bucket_names" {
 output "s3_bucket_arns" {
   description = "용도별 애플리케이션 S3 Bucket ARN map. 애플리케이션 IAM 정책 작성에 사용."
   value       = module.s3.bucket_arns
+}
+
+output "cnpg_backup_role_arn" {
+  description = "CNPG PostgreSQL Cluster ServiceAccount 에 부착할 IRSA Role ARN"
+  value       = module.workload_iam.cnpg_backup_role_arn
+}
+
+output "cnpg_backup_destination_path" {
+  description = "GitOps Barman ObjectStore.spec.configuration.destinationPath"
+  value       = "s3://${module.s3.bucket_names["db-backups"]}/${var.cnpg_backup_prefix}"
+}
+
+output "cnpg_backup_service_account" {
+  description = "GitOps 에서 맞춰야 하는 PostgreSQL Pod ServiceAccount 계약"
+  value = {
+    namespace = var.cnpg_namespace
+    name      = var.cnpg_service_account_name
+  }
 }

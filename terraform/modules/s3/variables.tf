@@ -36,3 +36,17 @@ variable "enable_versioning" {
   type        = bool
   default     = false
 }
+
+variable "bucket_settings" {
+  description = "용도별 설정 override. 생략한 항목은 공통 force_destroy / enable_versioning 값을 사용한다."
+  type = map(object({
+    force_destroy     = optional(bool)
+    enable_versioning = optional(bool)
+  }))
+  default = {}
+
+  validation {
+    condition     = alltrue([for purpose in keys(var.bucket_settings) : contains(var.bucket_purposes, purpose)])
+    error_message = "bucket_settings 의 key 는 bucket_purposes 에 포함되어야 합니다."
+  }
+}

@@ -8,6 +8,7 @@
 #   - Public Route Table (1개, 모든 Public Subnet 공유)
 #   - Private Route Table (single_nat_gateway=true 이면 1개 공유, false 이면 AZ 별 N개)
 #   - Route Table Association
+#   - S3 Gateway VPC Endpoint (Private Route Table 연결)
 #   - EKS 자동 인식용 subnet 태그
 #
 # 참고:
@@ -175,4 +176,23 @@ resource "aws_route_table_association" "private" {
 
   subnet_id      = each.value.id
   route_table_id = aws_route_table.private[local.private_subnet_nat_az[each.key]].id
+}
+
+# =============================================================================
+# S3 Gateway VPC Endpoint
+# =============================================================================
+# EKS private subnet의 Pod가 S3로 통신할 때 NAT Gateway를 거치지 않도록 한다.
+# S3 Gateway Endpoint는 Security Group이 아니라 route table에 연결하는 방식이며,
+# STS(IRSA 토큰 교환) 및 그 밖의 AWS API 호출은 계속 NAT 또는 별도 Interface
+# Endpoint 경로가 필요하다.
+resource "aws_vpc_endpoint" "s3" {
+  vpc_id            = aws_vpc.main.id
+  service_name      = "com.amazonaws.${var.aws_region}.s3"
+  vpc_endpoint_type = "Gateway"
+  route_table_ids   = [for route_table in aws_route_table.private : route_table.id]
+
+  tags = {
+    Name    = "${var.project_name}-s3-gateway-endpoint"
+    Purpose = "private-s3-access"
+  }
 }

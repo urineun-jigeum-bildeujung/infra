@@ -3,7 +3,7 @@
 
 aws_region        = "ap-northeast-2"
 project_name      = "goljugaenyang"
-state_bucket_name = "goljugaenyang-tfstate"
+state_bucket_name = "goljugaenyang-tfstate-test"
 
 # GitHub Actions OIDC Role 을 신뢰할 GitHub 소유 조직 / 저장소
 github_org  = "your-github-org"

@@ -7,7 +7,7 @@
 # 초기화 예시:
 #   terraform init -backend-config=backend.hcl
 
-bucket       = "goljugaenyang-tfstate"
+bucket       = "petflow-tfstate"
 key          = "bootstrap/terraform-access/terraform.tfstate"
 region       = "ap-northeast-2"
 encrypt      = true

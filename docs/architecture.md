@@ -165,8 +165,8 @@ git clone https://github.com/urineun-jigeum-bildeujung/infra.git
 cd infra
 
 # AWS 자격 증명 설정
-aws configure --profile goljugaenyang
-export AWS_PROFILE=goljugaenyang
+aws configure --profile petflow
+export AWS_PROFILE=petflow
 aws sts get-caller-identity   # Account 확인
 
 cd terraform/bootstrap/state-backend
@@ -217,10 +217,10 @@ terraform apply
 |---|---|---|
 | AWS Account ID | `297165773875` | (참고용) |
 | AWS Region | `ap-northeast-2` | `backend.hcl`, `terraform.tfvars` |
-| State Bucket 이름 | `goljugaenyang-tfstate` | `backend.hcl` |
-| Project 이름 | `goljugaenyang` | `terraform.tfvars` |
-| VPC CIDR | `10.10.0.0/16` | `terraform.tfvars` |
-| ECR 서비스 목록 | `["user-service", ...]` | `terraform.tfvars` |
+| State Bucket 이름 | `petflow-tfstate` | `backend.hcl` |
+| Project 이름 | `petflow` | `terraform.tfvars` |
+| VPC CIDR | `10.0.0.0/20` | `terraform.tfvars` |
+| ECR 서비스 목록 | `["auth-service", "member-service", "order-service", "payment-service", "product-service"]` | `terraform.tfvars` |
 | GitHub Actions Role ARN | Step 2 output 값 | GitHub Actions workflow yaml |
 
 ### Step 4. 팀원 각자에게 IAM 자격 증명 배포

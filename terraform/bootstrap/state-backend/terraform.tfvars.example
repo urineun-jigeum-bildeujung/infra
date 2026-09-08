@@ -2,5 +2,5 @@
 # 실제 값은 terraform.tfvars 로 복사하여 사용하며, terraform.tfvars 는 Git 에 커밋하지 않는다.
 
 aws_region        = "ap-northeast-2"
-project_name      = "goljugaenyang"
-state_bucket_name = "goljugaenyang-tfstate"
+project_name      = "petflow"
+state_bucket_name = "petflow-tfstate"

@@ -107,6 +107,19 @@ output "karpenter_discovery_value" {
 }
 
 # =============================================================================
+# Jenkins Kaniko (EKS Pod Identity / ECR)
+# =============================================================================
+output "jenkins_kaniko_role_arn" {
+  description = "Jenkins Kaniko Pod가 사용하는 IAM Role ARN"
+  value       = module.platform_iam.jenkins_kaniko_role_arn
+}
+
+output "jenkins_ecr_policy_arn" {
+  description = "Jenkins Kaniko의 petflow ECR Push/Pull Policy ARN"
+  value       = module.platform_iam.jenkins_ecr_policy_arn
+}
+
+# =============================================================================
 # ECR
 # =============================================================================
 output "ecr_repository_urls" {

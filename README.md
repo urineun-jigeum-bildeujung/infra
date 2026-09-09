@@ -39,6 +39,7 @@ infra/
 ├─ docs/
 │  ├─ architecture.md
 │  ├─ dev-infra-validation.md # DEV 플랫폼 기반 검증 결과
+│  ├─ jenkins-kaniko-ecr.md   # Jenkins Kaniko / ECR 연동 계약
 │  └─ platform-integration.md  # Karpenter / ALB Controller GitOps 연동 계약
 │
 ├─ terraform/

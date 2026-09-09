@@ -12,12 +12,14 @@
 #   |------------------------------|-------------|------------------------------|
 #   | AWS Load Balancer Controller | kube-system | aws-load-balancer-controller |
 #   | Karpenter                    | kube-system | karpenter                    |
+#   | Jenkins Kaniko                | jenkins     | jenkins-kaniko               |
 #
 # 관리 대상 (DEV 생명주기 — destroy/apply 반복 가능):
 #   - ALB Controller: Role + 공식 Policy + Pod Identity Association
 #   - Karpenter Controller: Role + Policy + Pod Identity Association
 #   - Karpenter Node Role: Karpenter 가 생성하는 Worker 노드용 (Managed Node Group Role 과 분리)
 #     + EKS Access Entry (EC2_LINUX) — API 인증 모드에서 노드가 클러스터에 join 하기 위해 필수
+#   - Jenkins Kaniko: ECR Push/Pull 최소 권한 Role + Policy + Pod Identity Association
 #
 # 이번 범위에서 제외:
 #   - External Secrets Operator — Secrets Manager 구조와 GitOps 설치 범위 확정 후 추가
@@ -223,4 +225,61 @@ resource "aws_eks_pod_identity_association" "karpenter" {
   namespace       = "kube-system"
   service_account = "karpenter"
   role_arn        = aws_iam_role.karpenter_controller.arn
+}
+
+# =============================================================================
+# Jenkins Kaniko — ECR Push Role
+# =============================================================================
+# Jenkins가 생성하는 Kaniko Build Pod는 고정 ServiceAccount를 사용하며,
+# EKS Pod Identity를 통해 프로젝트 ECR Repository에만 이미지를 Push/Pull한다.
+resource "aws_iam_role" "jenkins_kaniko" {
+  name               = "${local.name_prefix}-jenkins-kaniko"
+  description        = "Role for Jenkins Kaniko pods to push images to project ECR repositories"
+  assume_role_policy = data.aws_iam_policy_document.pod_identity_trust.json
+}
+
+data "aws_iam_policy_document" "jenkins_ecr" {
+  # ECR 인증 토큰은 Repository ARN 단위 제한을 지원하지 않는다.
+  statement {
+    sid       = "GetECRAuthorizationToken"
+    effect    = "Allow"
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"]
+  }
+
+  # 실제 이미지 Push/Pull 권한은 이 프로젝트의 Repository로 제한한다.
+  statement {
+    sid    = "PushPullPetflowRepositories"
+    effect = "Allow"
+    actions = [
+      "ecr:BatchCheckLayerAvailability",
+      "ecr:GetDownloadUrlForLayer",
+      "ecr:BatchGetImage",
+      "ecr:InitiateLayerUpload",
+      "ecr:UploadLayerPart",
+      "ecr:CompleteLayerUpload",
+      "ecr:PutImage",
+    ]
+    resources = [
+      "arn:aws:ecr:${var.aws_region}:${data.aws_caller_identity.current.account_id}:repository/${var.project_name}/*",
+    ]
+  }
+}
+
+resource "aws_iam_policy" "jenkins_ecr" {
+  name        = "${local.name_prefix}-jenkins-ecr"
+  description = "Permissions for Jenkins Kaniko to push and pull project ECR images"
+  policy      = data.aws_iam_policy_document.jenkins_ecr.json
+}
+
+resource "aws_iam_role_policy_attachment" "jenkins_ecr" {
+  role       = aws_iam_role.jenkins_kaniko.name
+  policy_arn = aws_iam_policy.jenkins_ecr.arn
+}
+
+resource "aws_eks_pod_identity_association" "jenkins_kaniko" {
+  cluster_name    = var.cluster_name
+  namespace       = "jenkins"
+  service_account = "jenkins-kaniko"
+  role_arn        = aws_iam_role.jenkins_kaniko.arn
 }

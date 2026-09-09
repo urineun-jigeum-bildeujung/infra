@@ -21,3 +21,13 @@ output "karpenter_node_role_arn" {
   description = "Karpenter Node Role ARN"
   value       = aws_iam_role.karpenter_node.arn
 }
+
+output "jenkins_kaniko_role_arn" {
+  description = "Jenkins Kaniko Pod가 EKS Pod Identity로 사용하는 IAM Role ARN"
+  value       = aws_iam_role.jenkins_kaniko.arn
+}
+
+output "jenkins_ecr_policy_arn" {
+  description = "Jenkins Kaniko의 petflow ECR Push/Pull Policy ARN"
+  value       = aws_iam_policy.jenkins_ecr.arn
+}

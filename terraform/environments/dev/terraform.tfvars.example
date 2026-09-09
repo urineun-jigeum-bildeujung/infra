@@ -41,7 +41,11 @@ eks_public_access_cidrs     = ["0.0.0.0/0"]
 # Cluster Admin 권한을 부여할 IAM User/Role ARN.
 # 담당자 IAM 사용자 하나만 우선 등록.
 eks_cluster_admin_principal_arns = [
+  "arn:aws:iam::297165773875:user/ujibil1",
   "arn:aws:iam::297165773875:user/ujibil2",
+  "arn:aws:iam::297165773875:user/ujibil3",
+  "arn:aws:iam::297165773875:user/ujibil4",
+  "arn:aws:iam::297165773875:user/ujibil5",
 ]
 
 # Managed Node Group

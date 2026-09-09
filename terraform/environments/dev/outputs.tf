@@ -1,6 +1,11 @@
 # Dev 환경 Root Module 출력 값 정의
 # 각 module 이 활성화되면 그 module 의 output 을 여기서 pass-through 한다.
 
+output "aws_region" {
+  description = "Dev 환경 AWS Region"
+  value       = var.aws_region
+}
+
 # =============================================================================
 # Network
 # =============================================================================

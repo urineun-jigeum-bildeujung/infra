@@ -60,6 +60,11 @@ output "eks_cluster_version" {
   value       = module.eks.cluster_version
 }
 
+output "eks_cluster_security_group_id" {
+  description = "Karpenter Worker Node 가 사용할 EKS Cluster Security Group ID"
+  value       = module.eks.cluster_security_group_id
+}
+
 output "eks_oidc_provider_arn" {
   description = "EKS OIDC Provider ARN. 이후 IRSA Role 생성 시 modules/iam 에 전달."
   value       = module.eks.oidc_provider_arn
@@ -94,6 +99,11 @@ output "karpenter_controller_role_arn" {
 output "karpenter_node_role_name" {
   description = "Karpenter Worker 노드용 Role 이름. GitOps 의 EC2NodeClass spec.role 에 사용."
   value       = module.platform_iam.karpenter_node_role_name
+}
+
+output "karpenter_discovery_value" {
+  description = "Karpenter EC2NodeClass 의 Subnet 및 Security Group Discovery Tag 값"
+  value       = module.network.karpenter_discovery_value
 }
 
 # =============================================================================

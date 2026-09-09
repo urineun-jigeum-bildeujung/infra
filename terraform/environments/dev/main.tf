@@ -77,7 +77,9 @@ module "s3" {
   bucket_purposes = distinct(concat(var.s3_bucket_purposes, ["db-backups"]))
   bucket_settings = {
     db-backups = {
-      force_destroy     = false
+      # DEV에서는 반복적인 destroy/apply를 허용한다. 실제 복구/보관 정책
+      # 검증을 시작하기 전에는 false로 바꿔 백업 객체 보존을 강제한다.
+      force_destroy     = true
       enable_versioning = true
     }
   }

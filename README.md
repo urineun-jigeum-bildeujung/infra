@@ -37,7 +37,9 @@ infra/
 ├─ .gitignore
 │
 ├─ docs/
-│  └─ architecture.md
+│  ├─ architecture.md
+│  ├─ dev-infra-validation.md # DEV 플랫폼 기반 검증 결과
+│  └─ platform-integration.md  # Karpenter / ALB Controller GitOps 연동 계약
 │
 ├─ terraform/
 │  ├─ bootstrap/             # DEV destroy 대상 아님 — 최초 1회 생성 후 유지

@@ -76,4 +76,6 @@ ecr_repository_names = [
   "order-service",
   "payment-service",
   "product-service",
+  "notification-service",
+  "review-service",
 ]

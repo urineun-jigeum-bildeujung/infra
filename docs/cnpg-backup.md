@@ -20,9 +20,10 @@ Pod Identity 의 미지원이 확인된 것도 아니며, 이 결정은 공식 �
 ## 리소스와 권한
 
 - DEV root 는 기존 s3_bucket_purposes 에 db-backups 를 중복 없이 추가한다.
-- 기존 앱 버킷 주소와 기본 설정은 유지한다. db-backups 만 force_destroy=false, Versioning=true 이다.
+- 기존 앱 버킷 주소와 기본 설정은 유지한다. DEV의 db-backups 는 반복 destroy/apply를 위해 force_destroy=true, Versioning=true 이다.
+- 실제 복구/보관 정책 검증을 시작하기 전에는 db-backups 의 force_destroy를 false로 바꿔 백업 객체 보존을 강제한다.
 - Public Access Block, SSE-S3(AES256), TLS 강제는 기존 S3 모듈 설정을 상속한다.
-- force_destroy=false 는 객체/버전이 남은 버킷의 강제 비우기를 막는다. 빈 버킷 삭제, 관리자 직접 삭제까지 막는 장치는 아니다.
+- force_destroy는 Terraform destroy 시 객체/버전을 강제 비우는 동작만 제어한다. false로 바꿔도 빈 버킷 삭제, 관리자 직접 삭제까지 막는 장치는 아니다.
 - Role 의 OIDC trust 는 정확한 namespace/ServiceAccount sub 와 aud=sts.amazonaws.com 을 요구한다.
 - 전용 버킷에서 ListBucket 을 허용한다. Barman HeadBucket 검사에는 prefix 조건이 없어 목록 권한을 prefix 로 제한하지 않는다.
 - 객체 GetObject/PutObject/AbortMultipartUpload/DeleteObject 는 cnpg_backup_prefix 아래로 제한한다.

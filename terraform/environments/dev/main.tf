@@ -73,5 +73,5 @@ module "s3" {
   project_name    = var.project_name
   environment     = var.environment
   bucket_purposes = var.s3_bucket_purposes
-  # force_destroy / enable_versioning 은 모듈 기본값(DEV 기준) 사용
+  # 모든 애플리케이션 S3 Bucket은 force_destroy=false 및 prevent_destroy=true로 보호한다.
 }

@@ -14,6 +14,7 @@
 #   이 모듈에서 만드는 Bucket 은 절대 State 저장 용도로 사용하지 않는다.
 #
 # 보안 기본값 (state-backend 와 동일 패턴):
+#   - Terraform 삭제 방지 및 객체 강제 삭제 차단
 #   - Public Access Block 4항목 모두 차단
 #   - AES256 서버측 암호화
 #   - HTTPS(TLS) 이외 요청 거부 Bucket Policy
@@ -32,8 +33,13 @@ resource "aws_s3_bucket" "app" {
 
   bucket = each.value
 
-  # DEV 는 반복 destroy/apply 를 전제로 하므로 객체가 있어도 삭제 가능하게 둔다.
-  force_destroy = var.force_destroy
+  # 애플리케이션 데이터와 배포 자산을 보존하기 위해 객체 자동 삭제를 허용하지 않는다.
+  force_destroy = false
+
+  # 전체 인프라 destroy에서도 S3 Bucket 삭제를 차단한다.
+  lifecycle {
+    prevent_destroy = true
+  }
 
   tags = {
     Name    = each.value

@@ -7,6 +7,14 @@ output "alb_controller_role_arn" {
   value       = aws_iam_role.alb_controller.arn
 }
 
+output "alb_controller_service_account" {
+  description = "AWS Load Balancer Controller Pod Identity와 Helm이 맞춰야 하는 ServiceAccount 계약"
+  value = {
+    namespace = aws_eks_pod_identity_association.alb_controller.namespace
+    name      = aws_eks_pod_identity_association.alb_controller.service_account
+  }
+}
+
 output "karpenter_controller_role_arn" {
   description = "Karpenter Controller Role ARN (Pod Identity 로 kube-system/karpenter 에 연결됨)"
   value       = aws_iam_role.karpenter_controller.arn

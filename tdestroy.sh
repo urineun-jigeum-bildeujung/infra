@@ -5,8 +5,8 @@
 #    실행 전 반드시 어느 계정 / 어느 리전인지 확인한다.
 #
 # 이 스크립트는 오직 terraform/environments/dev 만 대상으로 한다.
-# Bootstrap 스택과 DEV 애플리케이션 S3 모듈은 삭제 대상에서 제외한다.
-# → tfstate / static / product-images / uploads / db-backups Bucket 은 그대로 유지된다.
+# Bootstrap 스택, Route53 Hosted Zone, DEV 애플리케이션 S3 모듈은 삭제 대상에서 제외한다.
+# → DNS 위임과 tfstate / static / product-images / uploads / db-backups Bucket 은 그대로 유지된다.
 # Terraform의 -target은 평상시 apply가 아닌, 영구 데이터 스토리지를 제외한
 # DEV 인프라 정리 용도로만 제한해서 사용한다.
 #
@@ -30,9 +30,12 @@ cleanup_kubernetes_load_balancers() {
   local cluster_name
   local aws_region
   local load_balancer_services
+  local alb_ingresses
   local service_ref
+  local ingress_ref
   local namespace
   local service_name
+  local ingress_name
 
   cluster_name="$(terraform output -raw eks_cluster_name 2>/dev/null || true)"
   aws_region="$(terraform output -raw aws_region 2>/dev/null || true)"
@@ -57,9 +60,11 @@ cleanup_kubernetes_load_balancers() {
 
   load_balancer_services="$(kubectl --kubeconfig "${TEMP_KUBECONFIG}" get services --all-namespaces \
     -o jsonpath='{range .items[?(@.spec.type=="LoadBalancer")]}{.metadata.namespace}{"/"}{.metadata.name}{"\n"}{end}')"
+  alb_ingresses="$(kubectl --kubeconfig "${TEMP_KUBECONFIG}" get ingresses --all-namespaces \
+    -o jsonpath='{range .items[?(@.spec.ingressClassName=="alb")]}{.metadata.namespace}{"/"}{.metadata.name}{"\n"}{end}')"
 
-  if [[ -z "${load_balancer_services}" ]]; then
-    echo "[tdestroy] 삭제할 Kubernetes LoadBalancer Service가 없습니다."
+  if [[ -z "${load_balancer_services}" && -z "${alb_ingresses}" ]]; then
+    echo "[tdestroy] 삭제할 Kubernetes LoadBalancer Service/ALB Ingress가 없습니다."
     return
   fi
 
@@ -67,7 +72,17 @@ cleanup_kubernetes_load_balancers() {
   kubectl --kubeconfig "${TEMP_KUBECONFIG}" scale statefulset argocd-application-controller \
     --namespace argocd --replicas=0 --timeout=60s >/dev/null 2>&1 || true
 
+  while IFS= read -r ingress_ref; do
+    [[ -z "${ingress_ref}" ]] && continue
+    namespace="${ingress_ref%%/*}"
+    ingress_name="${ingress_ref#*/}"
+    echo "[tdestroy] Kubernetes ALB Ingress 삭제: ${namespace}/${ingress_name}"
+    kubectl --kubeconfig "${TEMP_KUBECONFIG}" delete ingress "${ingress_name}" \
+      --namespace "${namespace}" --wait=true --timeout=10m
+  done <<< "${alb_ingresses}"
+
   while IFS= read -r service_ref; do
+    [[ -z "${service_ref}" ]] && continue
     namespace="${service_ref%%/*}"
     service_name="${service_ref#*/}"
     echo "[tdestroy] Kubernetes LoadBalancer Service 삭제: ${namespace}/${service_name}"
@@ -88,7 +103,7 @@ fi
 CALLER_INFO="$(aws sts get-caller-identity --output text --query 'Account')"
 echo "[tdestroy] 대상 AWS Account: ${CALLER_INFO}"
 echo "[tdestroy] 대상 스택       : terraform/environments/dev"
-echo "[tdestroy] 보존 대상        : S3 (tfstate/static/product-images/uploads/db-backups)"
+echo "[tdestroy] 보존 대상        : Route53 Hosted Zone, S3 (tfstate/static/product-images/uploads/db-backups)"
 echo "[tdestroy] 3초 후 destroy 를 시작합니다. 취소하려면 지금 Ctrl+C 를 누르세요."
 sleep 3
 cleanup_kubernetes_load_balancers
@@ -101,4 +116,4 @@ terraform destroy --auto-approve \
   -target=module.iam \
   -target=module.network
 
-echo "[tdestroy] 애플리케이션 S3 Bucket 4개는 삭제 대상에서 제외했습니다."
+echo "[tdestroy] Route53 Hosted Zone과 애플리케이션 S3 Bucket 4개는 삭제 대상에서 제외했습니다."

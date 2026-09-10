@@ -40,22 +40,31 @@ infra/
 │  ├─ architecture.md
 │  ├─ dev-infra-validation.md # DEV 플랫폼 기반 검증 결과
 │  ├─ jenkins-kaniko-ecr.md   # Jenkins Kaniko / ECR 연동 계약
-│  └─ platform-integration.md  # Karpenter / ALB Controller GitOps 연동 계약
+│  ├─ platform-integration.md  # Karpenter / ALB Controller GitOps 연동 계약
+│  └─ route53-acm.md           # leechs.shop DNS 이전 / ACM 단계별 절차
 │
 ├─ terraform/
 │  ├─ bootstrap/             # DEV destroy 대상 아님 — 최초 1회 생성 후 유지
 │  │  ├─ state-backend/      # Terraform State 저장용 S3 Bucket
-│  │  └─ terraform-access/   # Terraform 실행 Role, GitHub Actions OIDC Role, State 접근 Policy
+│  │  └─ terraform-access/   # Terraform Role/OIDC, State 접근, Route53 삭제 차단 Policy
 │  │
 │  ├─ modules/               # 재사용 가능한 Terraform 모듈 (DEV 삭제 대상)
 │  │  ├─ network/            # VPC, Subnet, IGW, NAT, Route Table
 │  │  ├─ eks/                # EKS Cluster, Node Group, OIDC Provider
 │  │  ├─ iam/                # EKS / ALB / Karpenter / 애플리케이션 Role (DEV 삭제 가능만)
 │  │  ├─ ecr/                # ECR Repository
-│  │  └─ s3/                 # 애플리케이션용 S3 Bucket
+│  │  ├─ s3/                 # 애플리케이션용 S3 Bucket
+│  │  └─ route53-acm/        # Route53 Hosted Zone, ACM 인증서, DNS 검증
 │  │
 │  └─ environments/          # 실제 Terraform 실행 위치 (Root Module)
 │     └─ dev/                # DEV 환경: 위 모듈들을 조립
+│
+├─ kubernetes/
+│  ├─ alb-controller/        # AWS Load Balancer Controller Helm values
+│  └─ tests/                 # 임시 HTTPS End-to-End 테스트 manifest
+├─ scripts/
+│  ├─ install-alb-controller.sh
+│  └─ https-test.sh
 │
 ├─ tinit.sh                  # 프로젝트 루트에서 실행하는 편의 스크립트 (dev 대상)
 ├─ tplan.sh
@@ -63,7 +72,7 @@ infra/
 └─ tdestroy.sh               # S3 보존, 나머지 DEV 인프라 삭제
 ```
 
-`bootstrap/` 과 `environments/dev/` 는 **생명주기가 다르다**. `./tdestroy.sh`는 Bootstrap과 모든 S3 Bucket을 보존하고 나머지 DEV 인프라만 삭제한다. 자세한 원칙은 [docs/architecture.md](docs/architecture.md) 의 "Bootstrap 과 DEV 인프라의 생명주기 분리" 섹션 참고.
+`bootstrap/` 과 `environments/dev/` 는 **생명주기가 다르다**. `./tdestroy.sh`는 Bootstrap, Route53 Hosted Zone, 모든 S3 Bucket을 보존하고 나머지 DEV 인프라만 삭제한다. 도메인 이전은 [docs/route53-acm.md](docs/route53-acm.md), 생명주기 원칙은 [docs/architecture.md](docs/architecture.md) 참고.
 
 향후 확장 예정:
 
@@ -210,7 +219,7 @@ State locking (`use_lockfile = true`) 덕분에 팀원 A 가 apply 중이면 B �
 | `tinit.sh` | 프로젝트 루트 | 필수 도구 / 인증 / `backend.hcl` 확인 후 `terraform init -backend-config=backend.hcl` |
 | `tplan.sh` | 프로젝트 루트 | AWS 인증 확인 → `terraform fmt` + `validate` + `plan` |
 | `tapply.sh` | 프로젝트 루트 | AWS 인증 확인 → `fmt` + `validate` + `apply --auto-approve` |
-| `tdestroy.sh` | 프로젝트 루트 | AWS 인증 확인 → Kubernetes LoadBalancer Service 정리 → S3를 제외한 DEV 모듈만 삭제 |
+| `tdestroy.sh` | 프로젝트 루트 | AWS 인증 확인 → Kubernetes ALB Ingress/LoadBalancer Service 정리 → Route53/S3를 제외한 DEV 모듈만 삭제 |
 
 모두 `terraform/environments/dev` 를 대상으로 한다. Bootstrap 스택(`state-backend`, `terraform-access`)은 이 스크립트로 조작되지 않는다.
 Bootstrap 스택은 담당자가 해당 디렉터리로 직접 이동해서 `terraform` 명령을 실행한다 ([docs/architecture.md](docs/architecture.md) §5 참고).
@@ -218,3 +227,5 @@ Bootstrap 스택은 담당자가 해당 디렉터리로 직접 이동해서 `ter
 ## 다음 참고 문서
 
 - [docs/architecture.md](docs/architecture.md) — 아키텍처 원칙, Bootstrap ↔ DEV 생명주기 분리, Bootstrap 담당자 최초 실행 절차, AWS 계정 발급 전 작업 원칙
+- [docs/route53-acm.md](docs/route53-acm.md) — leechs.shop Route53 이전, ACM 및 ALB 연결 단계
+- [docs/alb-https-test.md](docs/alb-https-test.md) — AWS Load Balancer Controller 설치 및 test.leechs.shop HTTPS 통합 검증

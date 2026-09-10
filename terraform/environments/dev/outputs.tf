@@ -7,6 +7,24 @@ output "aws_region" {
 }
 
 # =============================================================================
+# Route53 - 도메인 등록기관(카페24) 네임서버 변경에 사용
+# =============================================================================
+output "route53_zone_id" {
+  description = "leechs.shop Route53 Public Hosted Zone ID"
+  value       = module.route53_acm.zone_id
+}
+
+output "route53_name_servers" {
+  description = "카페24에 등록할 Route53 권한 네임서버 4개"
+  value       = module.route53_acm.name_servers
+}
+
+output "acm_certificate_arn" {
+  description = "leechs.shop 및 *.leechs.shop용 ACM 인증서 ARN"
+  value       = module.route53_acm.acm_certificate_arn
+}
+
+# =============================================================================
 # Network
 # =============================================================================
 output "vpc_id" {
@@ -99,6 +117,11 @@ output "eks_ebs_csi_role_arn" {
 output "alb_controller_role_arn" {
   description = "ALB Controller Role ARN (Pod Identity: kube-system/aws-load-balancer-controller)"
   value       = module.platform_iam.alb_controller_role_arn
+}
+
+output "alb_controller_service_account" {
+  description = "ALB Controller Helm 설치와 Pod Identity가 공유하는 Namespace/ServiceAccount"
+  value       = module.platform_iam.alb_controller_service_account
 }
 
 output "karpenter_controller_role_arn" {

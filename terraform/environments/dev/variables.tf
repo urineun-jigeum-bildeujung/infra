@@ -18,6 +18,14 @@ variable "environment" {
 }
 
 # =============================================================================
+# DNS
+# =============================================================================
+variable "domain_name" {
+  description = "Route53에서 관리할 서비스 루트 도메인"
+  type        = string
+}
+
+# =============================================================================
 # Network
 # =============================================================================
 variable "vpc_cidr" {
@@ -89,6 +97,17 @@ variable "eks_node_ami_type" {
   description = "Managed Node Group AMI 타입 (AL2023_x86_64_STANDARD 등)"
   type        = string
   default     = "AL2023_x86_64_STANDARD"
+}
+
+variable "eks_node_disk_size" {
+  description = "Managed Node Group Worker Node root EBS 크기 (GiB)"
+  type        = number
+  default     = 50
+
+  validation {
+    condition     = var.eks_node_disk_size >= 20
+    error_message = "eks_node_disk_size는 최소 20GiB 이상이어야 합니다."
+  }
 }
 
 variable "eks_node_desired_size" {

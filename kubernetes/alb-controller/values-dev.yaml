@@ -1,0 +1,33 @@
+# AWS Load Balancer Controller - petflow DEV
+#
+# clusterName, region, vpcId는 install-alb-controller.sh가 Terraform output에서
+# 읽어서 --set으로 전달한다. VPC가 재생성돼도 이 파일을 수정할 필요가 없다.
+
+# DEV는 비용/노드 자원을 아끼기 위해 1개로 운영한다. 운영 환경에서는 2개 이상을 권장한다.
+replicaCount: 1
+
+serviceAccount:
+  create: true
+  name: aws-load-balancer-controller
+  annotations: {}
+
+# EKS Pod Identity를 사용하므로 ServiceAccount에 IRSA role-arn annotation을
+# 추가하지 않는다. Terraform의 platform-iam 모듈이 같은 이름의 SA와 Role을 연결한다.
+
+defaultTargetType: ip
+
+# 기존 ingress-nginx LoadBalancer Service의 동작 방식에 영향을 주지 않는다.
+# ALB는 ingressClassName: alb 인 Ingress만 명시적으로 처리한다.
+enableServiceMutatorWebhook: false
+
+# Helm upgrade 때 webhook CA/Secret을 재생성하면 일시적인 x509 불일치가 생길 수 있다.
+# 기존 TLS Secret을 재사용해 admission webhook 연결을 안정적으로 유지한다.
+keepTLSSecret: true
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi

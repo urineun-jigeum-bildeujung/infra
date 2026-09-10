@@ -4,6 +4,7 @@
 #   - static         : Frontend 정적 파일
 #   - product-images : 상품 이미지
 #   - uploads        : 사용자 업로드 파일
+#   - db-backups     : CNPG 백업 (DEV root 에서 삭제/Versioning 설정 override)
 #
 # Naming Rule:
 #   <project_name>-<environment>-<용도>   예: petflow-dev-static
@@ -72,9 +73,12 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "app" {
   }
 }
 
-# Versioning — DEV 기본 비활성 (var.enable_versioning=true 일 때만 리소스 생성)
+# Versioning — 공통 기본값 또는 버킷별 override 가 true 일 때 리소스 생성
 resource "aws_s3_bucket_versioning" "app" {
-  for_each = var.enable_versioning ? aws_s3_bucket.app : {}
+  for_each = {
+    for purpose, bucket in aws_s3_bucket.app : purpose => bucket
+    if coalesce(try(var.bucket_settings[purpose].enable_versioning, null), var.enable_versioning)
+  }
 
   bucket = each.value.id
 

@@ -126,7 +126,25 @@ variable "eks_node_max_size" {
 variable "s3_bucket_purposes" {
   description = "애플리케이션용 S3 Bucket 의 용도 목록. 용도별로 <project>-<env>-<용도> Bucket 이 생성된다."
   type        = list(string)
-  default     = ["static", "product-images", "uploads"]
+  default     = ["static", "product-images", "uploads", "db-backups"]
+}
+
+variable "cnpg_namespace" {
+  description = "CNPG PostgreSQL Cluster namespace (Operator namespace 가 아님). GitOps 와 맞춘다."
+  type        = string
+  default     = "database"
+}
+
+variable "cnpg_service_account_name" {
+  description = "CNPG PostgreSQL Pod ServiceAccount 이름. 기본적으로 GitOps 의 Cluster.metadata.name 과 같다."
+  type        = string
+  default     = "petflow-db"
+}
+
+variable "cnpg_backup_prefix" {
+  description = "db-backups 안의 CNPG 전용 prefix. 앞뒤 / 는 포함하지 않는다."
+  type        = string
+  default     = "cnpg"
 }
 
 variable "ecr_repository_names" {

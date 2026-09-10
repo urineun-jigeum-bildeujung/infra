@@ -44,6 +44,7 @@ eks_public_access_cidrs     = ["0.0.0.0/0"]
 # Cluster Admin 권한을 부여할 IAM User/Role ARN.
 # 현재 Terraform으로 관리하는 담당자 ARN을 모두 등록. 기존 항목을 제거하면 해당 Access Entry가 삭제된다.
 eks_cluster_admin_principal_arns = [
+  "arn:aws:iam::297165773875:user/ujibil1",
   "arn:aws:iam::297165773875:user/ujibil2",
   "arn:aws:iam::297165773875:user/ujibil5",
 ]
@@ -65,7 +66,13 @@ eks_node_max_size       = 3
 # 용도별로 <project>-<env>-<용도> 이름의 Bucket 이 생성된다.
 # 예: petflow-dev-static / petflow-dev-product-images / petflow-dev-uploads
 # 빈 Bucket 은 과금되지 않으며, 새 용도가 필요하면 목록에 추가만 하면 된다.
-s3_bucket_purposes = ["static", "product-images", "uploads"]
+s3_bucket_purposes = ["static", "product-images", "uploads", "db-backups"]
+
+# CNPG IRSA — 잠정 이름이며 GitOps Cluster 와 함께 변경한다.
+# db-backups 는 목록에서 빠져도 root module 이 추가한다.
+cnpg_namespace            = "database"
+cnpg_service_account_name = "petflow-db" # 기본 CNPG ServiceAccount 이름 = Cluster.metadata.name
+cnpg_backup_prefix        = "cnpg"       # ObjectStore destinationPath: s3://petflow-dev-db-backups/cnpg
 
 # =============================================================================
 # ECR

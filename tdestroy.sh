@@ -6,7 +6,7 @@
 #
 # 이 스크립트는 오직 terraform/environments/dev 만 대상으로 한다.
 # Bootstrap 스택, Route53 Hosted Zone, DEV 애플리케이션 S3 모듈은 삭제 대상에서 제외한다.
-# → DNS 위임과 tfstate / static / product-images / uploads Bucket 은 그대로 유지된다.
+# → DNS 위임과 tfstate / static / product-images / uploads / db-backups Bucket 은 그대로 유지된다.
 # Terraform의 -target은 평상시 apply가 아닌, 영구 데이터 스토리지를 제외한
 # DEV 인프라 정리 용도로만 제한해서 사용한다.
 #
@@ -88,16 +88,17 @@ fi
 CALLER_INFO="$(aws sts get-caller-identity --output text --query 'Account')"
 echo "[tdestroy] 대상 AWS Account: ${CALLER_INFO}"
 echo "[tdestroy] 대상 스택       : terraform/environments/dev"
-echo "[tdestroy] 보존 대상        : Route53 Hosted Zone, S3 (tfstate/static/product-images/uploads)"
+echo "[tdestroy] 보존 대상        : Route53 Hosted Zone, S3 (tfstate/static/product-images/uploads/db-backups)"
 echo "[tdestroy] 3초 후 destroy 를 시작합니다. 취소하려면 지금 Ctrl+C 를 누르세요."
 sleep 3
 cleanup_kubernetes_load_balancers
 
 terraform destroy --auto-approve \
+  -target=module.workload_iam \
   -target=module.platform_iam \
   -target=module.eks \
   -target=module.ecr \
   -target=module.iam \
   -target=module.network
 
-echo "[tdestroy] Route53 Hosted Zone과 S3 Bucket 4개는 삭제 대상에서 제외했습니다."
+echo "[tdestroy] Route53 Hosted Zone과 애플리케이션 S3 Bucket 4개는 삭제 대상에서 제외했습니다."

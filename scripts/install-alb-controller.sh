@@ -15,6 +15,7 @@ RELEASE_NAME="aws-load-balancer-controller"
 NAMESPACE="kube-system"
 SERVICE_ACCOUNT="aws-load-balancer-controller"
 TEMP_KUBECONFIG=""
+HELM_CONFLICT_ARGS=()
 
 cleanup() {
   if [[ -n "${TEMP_KUBECONFIG}" && -f "${TEMP_KUBECONFIG}" ]]; then
@@ -63,6 +64,12 @@ aws eks update-kubeconfig \
 helm repo add eks https://aws.github.io/eks-charts --force-update >/dev/null
 helm repo update eks >/dev/null
 
+# Helm 4의 server-side apply는 kubectl scale 등으로 필드 소유자가 바뀌면 충돌할 수 있다.
+# 지원되는 버전에서는 Git에 선언한 Helm 값을 기준으로 소유권을 되찾는다.
+if helm upgrade --help | grep -q -- "--force-conflicts"; then
+  HELM_CONFLICT_ARGS+=(--force-conflicts)
+fi
+
 # helm upgrade는 CRD를 갱신하지 않으므로 고정된 Chart 버전의 CRD를 먼저 적용한다.
 helm show crds eks/aws-load-balancer-controller --version "${CHART_VERSION}" \
   | kubectl --kubeconfig "${TEMP_KUBECONFIG}" apply -f -
@@ -76,6 +83,7 @@ helm upgrade --install "${RELEASE_NAME}" eks/aws-load-balancer-controller \
   --set "vpcId=${vpc_id}" \
   --wait \
   --timeout 10m \
+  "${HELM_CONFLICT_ARGS[@]}" \
   --kubeconfig "${TEMP_KUBECONFIG}"
 
 kubectl --kubeconfig "${TEMP_KUBECONFIG}" \

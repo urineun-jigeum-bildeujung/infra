@@ -96,14 +96,13 @@ module "route53_acm" {
   domain_name = var.domain_name
 }
 
-# CNPG PostgreSQL Pod가 Barman Cloud를 통해 S3에 백업할 때 사용하는 IRSA Role.
+# CNPG PostgreSQL Pod가 Barman Cloud를 통해 S3에 백업할 때 사용하는 Pod Identity Role.
 module "workload_iam" {
   source = "../../modules/workload-iam"
 
   project_name              = var.project_name
   environment               = var.environment
-  oidc_provider_arn         = module.eks.oidc_provider_arn
-  oidc_provider_url         = module.eks.oidc_provider_url
+  cluster_name              = module.eks.cluster_name
   db_backups_bucket_arn     = module.s3.bucket_arns["db-backups"]
   cnpg_namespace            = var.cnpg_namespace
   cnpg_service_account_name = var.cnpg_service_account_name

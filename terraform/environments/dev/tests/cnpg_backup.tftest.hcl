@@ -65,7 +65,7 @@ run "backup_bucket_is_versioned_and_all_buckets_are_protected" {
   }
 }
 
-run "cnpg_irsa_scope" {
+run "cnpg_pod_identity_scope" {
   command = plan
 
   module {
@@ -75,8 +75,7 @@ run "cnpg_irsa_scope" {
   variables {
     project_name              = "petflow"
     environment               = "dev"
-    oidc_provider_arn         = "arn:aws:iam::123456789012:oidc-provider/oidc.eks.ap-northeast-2.amazonaws.com/id/EXAMPLE"
-    oidc_provider_url         = "https://oidc.eks.ap-northeast-2.amazonaws.com/id/EXAMPLE"
+    cluster_name              = "petflow-eks"
     db_backups_bucket_arn     = "arn:aws:s3:::petflow-dev-db-backups"
     cnpg_namespace            = "database"
     cnpg_service_account_name = "petflow-db"
@@ -84,16 +83,26 @@ run "cnpg_irsa_scope" {
   }
 
   assert {
-    condition = alltrue(flatten([
-      for statement in data.aws_iam_policy_document.cnpg_trust.statement : [
-        for condition in statement.condition :
-        condition.test == "StringEquals" && (
-          (endswith(condition.variable, ":sub") && toset(condition.values) == toset(["system:serviceaccount:database:petflow-db"])) ||
-          (endswith(condition.variable, ":aud") && toset(condition.values) == toset(["sts.amazonaws.com"]))
-        ) && !startswith(condition.variable, "https://")
-      ]
-    ]))
-    error_message = "IRSA 는 정확한 ServiceAccount 와 STS audience 를 신뢰해야 합니다."
+    condition = alltrue([
+      for statement in data.aws_iam_policy_document.cnpg_trust.statement :
+      toset(statement.actions) == toset(["sts:AssumeRole", "sts:TagSession"]) &&
+      length(statement.principals) == 1 &&
+      alltrue([
+        for principal in statement.principals :
+        principal.type == "Service" &&
+        toset(principal.identifiers) == toset(["pods.eks.amazonaws.com"])
+      ])
+    ])
+    error_message = "Role은 EKS Pod Identity 서비스만 신뢰해야 합니다."
+  }
+
+  assert {
+    condition = (
+      aws_eks_pod_identity_association.cnpg_backup.cluster_name == "petflow-eks" &&
+      aws_eks_pod_identity_association.cnpg_backup.namespace == "database" &&
+      aws_eks_pod_identity_association.cnpg_backup.service_account == "petflow-db"
+    )
+    error_message = "Pod Identity Association은 정확한 Cluster/namespace/ServiceAccount에 연결되어야 합니다."
   }
 
   assert {
@@ -120,8 +129,7 @@ run "reject_wildcard_prefix" {
   variables {
     project_name              = "petflow"
     environment               = "dev"
-    oidc_provider_arn         = "arn:aws:iam::123456789012:oidc-provider/oidc.eks.ap-northeast-2.amazonaws.com/id/EXAMPLE"
-    oidc_provider_url         = "oidc.eks.ap-northeast-2.amazonaws.com/id/EXAMPLE"
+    cluster_name              = "petflow-eks"
     db_backups_bucket_arn     = "arn:aws:s3:::petflow-dev-db-backups"
     cnpg_namespace            = "database"
     cnpg_service_account_name = "petflow-db"

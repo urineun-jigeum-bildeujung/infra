@@ -174,8 +174,13 @@ output "s3_bucket_arns" {
 }
 
 output "cnpg_backup_role_arn" {
-  description = "CNPG PostgreSQL Cluster ServiceAccount 에 부착할 IRSA Role ARN"
+  description = "CNPG PostgreSQL Pod Identity Association에 연결된 S3 백업 Role ARN"
   value       = module.workload_iam.cnpg_backup_role_arn
+}
+
+output "cnpg_backup_pod_identity_association_id" {
+  description = "CNPG PostgreSQL Pod용 EKS Pod Identity Association ID"
+  value       = module.workload_iam.cnpg_backup_pod_identity_association_id
 }
 
 output "cnpg_backup_destination_path" {

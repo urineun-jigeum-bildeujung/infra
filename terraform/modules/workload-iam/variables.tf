@@ -8,13 +8,8 @@ variable "environment" {
   type        = string
 }
 
-variable "oidc_provider_arn" {
-  description = "EKS IAM OIDC Provider ARN"
-  type        = string
-}
-
-variable "oidc_provider_url" {
-  description = "EKS OIDC issuer URL. https:// 접두사는 선택 사항."
+variable "cluster_name" {
+  description = "CNPG Pod Identity Association을 생성할 EKS Cluster 이름"
   type        = string
 }
 

@@ -19,6 +19,11 @@ output "route53_name_servers" {
   value       = module.route53_acm.name_servers
 }
 
+output "acm_certificate_arn" {
+  description = "leechs.shop 및 *.leechs.shop용 ACM 인증서 ARN"
+  value       = module.route53_acm.acm_certificate_arn
+}
+
 # =============================================================================
 # Network
 # =============================================================================

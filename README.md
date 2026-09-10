@@ -54,7 +54,7 @@ infra/
 │  │  ├─ iam/                # EKS / ALB / Karpenter / 애플리케이션 Role (DEV 삭제 가능만)
 │  │  ├─ ecr/                # ECR Repository
 │  │  ├─ s3/                 # 애플리케이션용 S3 Bucket
-│  │  └─ route53-acm/        # Route53 Hosted Zone (이후 ACM / DNS 검증 추가)
+│  │  └─ route53-acm/        # Route53 Hosted Zone, ACM 인증서, DNS 검증
 │  │
 │  └─ environments/          # 실제 Terraform 실행 위치 (Root Module)
 │     └─ dev/                # DEV 환경: 위 모듈들을 조립

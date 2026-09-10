@@ -75,3 +75,11 @@ module "s3" {
   bucket_purposes = var.s3_bucket_purposes
   # 모든 애플리케이션 S3 Bucket은 force_destroy=false 및 prevent_destroy=true로 보호한다.
 }
+
+# Route53 도메인 위임 - DEV 인프라 destroy와 분리하여 계속 보존한다.
+# Phase 1에서는 Hosted Zone만 생성하며, NS 전환 확인 후 ACM을 추가한다.
+module "route53_acm" {
+  source = "../../modules/route53-acm"
+
+  domain_name = var.domain_name
+}

@@ -7,6 +7,19 @@ output "aws_region" {
 }
 
 # =============================================================================
+# Route53 - 도메인 등록기관(카페24) 네임서버 변경에 사용
+# =============================================================================
+output "route53_zone_id" {
+  description = "leechs.shop Route53 Public Hosted Zone ID"
+  value       = module.route53_acm.zone_id
+}
+
+output "route53_name_servers" {
+  description = "카페24에 등록할 Route53 권한 네임서버 4개"
+  value       = module.route53_acm.name_servers
+}
+
+# =============================================================================
 # Network
 # =============================================================================
 output "vpc_id" {

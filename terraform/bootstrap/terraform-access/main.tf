@@ -4,6 +4,7 @@
 #   - GitHub Actions Terraform OIDC Role (신뢰: repo:<org>/<repo>:*)
 #   - GitHub OIDC Identity Provider
 #   - State Backend (S3 Bucket + .tflock) 접근 Policy
+#   - 영구 Route53 Hosted Zone 삭제 차단 Policy
 #   - 프로젝트 인프라 관리 권한 (초기 단계: AdministratorAccess, 추후 축소 TODO)
 #   - (선택) Terraform 을 실행하는 개발자용 IAM Role  ← 이번 스켈레톤에는 미포함
 #
@@ -186,6 +187,44 @@ resource "aws_iam_role_policy_attachment" "github_actions_admin" {
   role       = aws_iam_role.github_actions_terraform.name
   policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
 }
+
+# =============================================================================
+# Route53 Hosted Zone 삭제 차단
+# =============================================================================
+# DEV 스택과 별도인 이 Bootstrap 스택에서 명시적 Deny를 관리한다.
+# AdministratorAccess 등 다른 Allow 정책이 있어도 이 Deny가 우선한다.
+data "aws_iam_policy_document" "route53_delete_protection" {
+  statement {
+    sid     = "DenyDeletingProtectedHostedZones"
+    effect  = "Deny"
+    actions = ["route53:DeleteHostedZone"]
+    resources = [
+      for zone_id in var.protected_route53_zone_ids :
+      "arn:aws:route53:::hostedzone/${zone_id}"
+    ]
+  }
+}
+
+resource "aws_iam_policy" "route53_delete_protection" {
+  name        = "${var.project_name}-route53-delete-protection"
+  description = "Explicitly denies deletion of persistent Route53 hosted zones"
+  policy      = data.aws_iam_policy_document.route53_delete_protection.json
+}
+
+# GitHub Actions Terraform 자동화에도 같은 삭제 차단을 적용한다.
+resource "aws_iam_role_policy_attachment" "github_actions_route53_delete_protection" {
+  role       = aws_iam_role.github_actions_terraform.name
+  policy_arn = aws_iam_policy.route53_delete_protection.arn
+}
+
+# 로컬에서 Terraform을 실행하는 팀 IAM 사용자에게 삭제 차단을 적용한다.
+resource "aws_iam_user_policy_attachment" "team_route53_delete_protection" {
+  for_each = var.route53_protection_user_names
+
+  user       = each.value
+  policy_arn = aws_iam_policy.route53_delete_protection.arn
+}
+
 
 # TODO: AWS 계정 발급 후 실제 apply 로 아래 항목 검증
 #   - OIDC Provider 정상 생성 (Console → IAM → Identity providers)

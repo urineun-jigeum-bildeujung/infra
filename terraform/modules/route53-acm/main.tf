@@ -1,7 +1,6 @@
-# Route53 / ACM 모듈 - Phase 1
+# Route53 / ACM 모듈
 #
-# 먼저 Route53 Public Hosted Zone만 생성한다. 생성 후 출력되는 NS 4개를
-# 도메인 등록기관(카페24)에 등록하고 위임 전파를 확인한 뒤 ACM을 추가한다.
+# Route53 Public Hosted Zone과 루트/와일드카드 도메인용 ACM 인증서를 관리한다.
 
 resource "aws_route53_zone" "this" {
   name = var.domain_name
@@ -15,4 +14,43 @@ resource "aws_route53_zone" "this" {
   tags = {
     Name = var.domain_name
   }
+}
+
+resource "aws_acm_certificate" "this" {
+  domain_name               = var.domain_name
+  subject_alternative_names = ["*.${var.domain_name}"]
+  validation_method         = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = {
+    Name = var.domain_name
+  }
+}
+
+# ACM은 루트 도메인과 해당 와일드카드 도메인에 동일한 DNS 검증 토큰을
+# 발급한다. 동일한 Route53 CNAME을 두 리소스가 중복 관리하지 않도록
+# 루트 도메인의 검증 옵션으로 레코드 하나만 생성한다.
+resource "aws_route53_record" "acm_validation" {
+  zone_id = aws_route53_zone.this.zone_id
+  name = one([
+    for option in aws_acm_certificate.this.domain_validation_options :
+    option.resource_record_name if option.domain_name == var.domain_name
+  ])
+  type = one([
+    for option in aws_acm_certificate.this.domain_validation_options :
+    option.resource_record_type if option.domain_name == var.domain_name
+  ])
+  ttl = 300
+  records = [one([
+    for option in aws_acm_certificate.this.domain_validation_options :
+    option.resource_record_value if option.domain_name == var.domain_name
+  ])]
+}
+
+resource "aws_acm_certificate_validation" "this" {
+  certificate_arn         = aws_acm_certificate.this.arn
+  validation_record_fqdns = [aws_route53_record.acm_validation.fqdn]
 }

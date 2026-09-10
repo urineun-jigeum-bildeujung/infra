@@ -15,3 +15,8 @@ output "terraform_state_access_policy_arn" {
   description = "Terraform State/.tflock 접근용 Policy ARN. 향후 개발자 Role 등에 동일 Policy 를 attach 할 때 사용."
   value       = aws_iam_policy.terraform_state_access.arn
 }
+
+output "route53_delete_protection_policy_arn" {
+  description = "보호 대상 Route53 Hosted Zone의 삭제를 명시적으로 거부하는 IAM Policy ARN"
+  value       = aws_iam_policy.route53_delete_protection.arn
+}

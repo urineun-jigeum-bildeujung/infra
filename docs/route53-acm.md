@@ -17,7 +17,7 @@
 Route53과 ACM, 검증 레코드 및 서비스 DNS 레코드는 Terraform으로 관리한다.
 카페24의 네임서버 변경만 도메인 소유자가 한 번 수동으로 수행한다.
 
-## 현재 공개 DNS 확인 결과
+## 초기 공개 DNS 확인 이력
 
 2026-09-10 확인 기준:
 
@@ -34,9 +34,54 @@ CAA, SRV 레코드와 DNSSEC 설정을 반드시 다시 확인한다. 필요한 
 Route53에 먼저 동일하게 생성해야 한다. Cloudflare 프록시 IP는 원본 서버
 주소가 아니므로 Route53 A 레코드로 그대로 복사하지 않는다.
 
+## 현재 DNS 상태와 복구 필요 사항
+
+2026-09-10 14:48(KST)에 기존 Hosted Zone `Z0266642X83210S9XPSO`이
+Terraform 작업으로 삭제됐고, 14:54에 새 Hosted Zone
+`Z10307303I03OBEI24QKC`이 생성됐다. Hosted Zone을 다시 만들면 NS가
+달라지므로 카페24의 위임 정보도 반드시 새 NS로 갱신해야 한다.
+
+새 Route53 NS:
+
+```text
+ns-22.awsdns-02.com
+ns-1454.awsdns-53.org
+ns-589.awsdns-09.net
+ns-2020.awsdns-60.co.uk
+```
+
+현재 카페24는 삭제된 Zone의 NS를 가리키며 공개 DNS 조회는 `SERVFAIL`이다.
+ACM 적용 전에 카페24 NS를 위 4개로 교체하고 다음 세 조회가 모두 새 NS를
+반환하는지 확인한다.
+
+```bash
+dig +short NS leechs.shop
+dig @1.1.1.1 +short NS leechs.shop
+dig @8.8.8.8 +short NS leechs.shop
+```
+
+Hosted Zone은 재생성할 때마다 NS가 바뀌므로 Terraform의 일반
+`destroy` 대상에 포함하지 않는다. DEV 정리는 반드시 프로젝트 루트의
+`tdestroy.sh`를 사용한다.
+
+## Hosted Zone 삭제 보호
+
+삭제 방지는 두 계층으로 적용한다.
+
+- DEV Route53 리소스: Terraform `prevent_destroy = true`
+- Bootstrap IAM: 보호 Zone ARN의 `route53:DeleteHostedZone` 명시적 Deny
+
+Bootstrap 정책은 DEV와 별도 state에서 관리하며 GitHub Actions Terraform
+Role과 지정한 팀 IAM 사용자에게 연결한다. 다른 정책에
+`AdministratorAccess`가 있어도 명시적 Deny가 우선한다. 보호 정책 자체를
+의도적으로 분리하지 않는 한 콘솔, CLI, Terraform 모두 Zone 삭제가 거부된다.
+
+레코드 생성·변경은 차단하지 않으므로 ACM 검증 CNAME과 ALB Alias는 계속
+Terraform으로 관리할 수 있다.
+
 ## Phase 1 - Route53 Hosted Zone
 
-현재 Terraform 코드 범위는 Public Hosted Zone 생성까지다. 도메인은 DEV
+Public Hosted Zone 생성 코드는 완료됐다. 도메인은 DEV
 클러스터보다 생명주기가 길기 때문에 `prevent_destroy`로 보호하며,
 `tdestroy.sh`의 삭제 대상에서도 제외한다.
 
@@ -86,7 +131,7 @@ ALB와 루트/API Alias가 아직 없다면 네임서버 전환 후 웹 접속�
 
 ## Phase 3 - ACM
 
-Route53 위임 전파를 확인한 뒤 같은 모듈에 다음 리소스를 추가한다.
+ACM 코드 구현은 완료됐으며 Route53 위임 전파를 확인한 뒤 적용한다.
 
 - `aws_acm_certificate`: `leechs.shop`, `*.leechs.shop`
 - `aws_route53_record`: ACM DNS validation 레코드
@@ -95,7 +140,9 @@ Route53 위임 전파를 확인한 뒤 같은 모듈에 다음 리소스를 추�
 
 인증서는 ALB와 같은 `ap-northeast-2` 리전에 생성한다. 상태가 `ISSUED`가
 될 때까지 확인한다. 와일드카드는 `api.leechs.shop` 같은 한 단계
-서브도메인을 포함하지만 `a.b.leechs.shop`은 포함하지 않는다.
+서브도메인을 포함하지만 `a.b.leechs.shop`은 포함하지 않는다. 루트와
+와일드카드는 동일한 ACM 검증 CNAME을 사용하므로 Route53에서는 하나의
+검증 레코드만 관리한다.
 
 ## Phase 4 - ALB / Ingress / Alias
 

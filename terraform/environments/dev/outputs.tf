@@ -119,6 +119,11 @@ output "alb_controller_role_arn" {
   value       = module.platform_iam.alb_controller_role_arn
 }
 
+output "alb_controller_service_account" {
+  description = "ALB Controller Helm 설치와 Pod Identity가 공유하는 Namespace/ServiceAccount"
+  value       = module.platform_iam.alb_controller_service_account
+}
+
 output "karpenter_controller_role_arn" {
   description = "Karpenter Controller Role ARN (Pod Identity: kube-system/karpenter)"
   value       = module.platform_iam.karpenter_controller_role_arn

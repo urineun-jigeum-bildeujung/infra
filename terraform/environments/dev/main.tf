@@ -71,29 +71,8 @@ module "ecr" {
 module "s3" {
   source = "../../modules/s3"
 
-  project_name = var.project_name
-  environment  = var.environment
-  # 기존 terraform.tfvars 가 앱 버킷만 나열해도 CNPG 백업 버킷은 항상 생성한다.
-  bucket_purposes = distinct(concat(var.s3_bucket_purposes, ["db-backups"]))
-  bucket_settings = {
-    db-backups = {
-      # DEV에서는 반복적인 destroy/apply를 허용한다. 실제 복구/보관 정책
-      # 검증을 시작하기 전에는 false로 바꿔 백업 객체 보존을 강제한다.
-      force_destroy     = true
-      enable_versioning = true
-    }
-  }
-}
-
-module "workload_iam" {
-  source = "../../modules/workload-iam"
-
-  project_name              = var.project_name
-  environment               = var.environment
-  oidc_provider_arn         = module.eks.oidc_provider_arn
-  oidc_provider_url         = module.eks.oidc_provider_url
-  db_backups_bucket_arn     = module.s3.bucket_arns["db-backups"]
-  cnpg_namespace            = var.cnpg_namespace
-  cnpg_service_account_name = var.cnpg_service_account_name
-  cnpg_backup_prefix        = var.cnpg_backup_prefix
+  project_name    = var.project_name
+  environment     = var.environment
+  bucket_purposes = var.s3_bucket_purposes
+  # 모든 애플리케이션 S3 Bucket은 force_destroy=false 및 prevent_destroy=true로 보호한다.
 }

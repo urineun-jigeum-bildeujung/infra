@@ -37,7 +37,10 @@ infra/
 ├─ .gitignore
 │
 ├─ docs/
-│  └─ architecture.md
+│  ├─ architecture.md
+│  ├─ dev-infra-validation.md # DEV 플랫폼 기반 검증 결과
+│  ├─ jenkins-kaniko-ecr.md   # Jenkins Kaniko / ECR 연동 계약
+│  └─ platform-integration.md  # Karpenter / ALB Controller GitOps 연동 계약
 │
 ├─ terraform/
 │  ├─ bootstrap/             # DEV destroy 대상 아님 — 최초 1회 생성 후 유지
@@ -57,10 +60,10 @@ infra/
 ├─ tinit.sh                  # 프로젝트 루트에서 실행하는 편의 스크립트 (dev 대상)
 ├─ tplan.sh
 ├─ tapply.sh                 # --auto-approve
-└─ tdestroy.sh               # --auto-approve, 3초 카운트다운 안전장치
+└─ tdestroy.sh               # S3 보존, 나머지 DEV 인프라 삭제
 ```
 
-`bootstrap/` 과 `environments/dev/` 는 **생명주기가 다르다**. DEV 인프라를 `terraform destroy` 해도 `bootstrap/` 은 함께 삭제되지 않으므로 Terraform 실행 기반과 State 는 안전하게 유지된다. 자세한 원칙은 [docs/architecture.md](docs/architecture.md) 의 "Bootstrap 과 DEV 인프라의 생명주기 분리" 섹션 참고.
+`bootstrap/` 과 `environments/dev/` 는 **생명주기가 다르다**. `./tdestroy.sh`는 Bootstrap과 모든 S3 Bucket을 보존하고 나머지 DEV 인프라만 삭제한다. 자세한 원칙은 [docs/architecture.md](docs/architecture.md) 의 "Bootstrap 과 DEV 인프라의 생명주기 분리" 섹션 참고.
 
 향후 확장 예정:
 
@@ -119,6 +122,9 @@ unzip awscliv2.zip && sudo ./aws/install
 terraform version   # 1.10.x 이상 확인
 aws --version
 ```
+
+`tdestroy.sh`는 EKS 삭제 전에 LoadBalancer Service를 정리하므로 `kubectl`도 설치되어 있어야 한다.
+
 
 macOS 는 `brew install terraform awscli`, Windows 는 `choco install terraform awscli` 또는 WSL Ubuntu 사용 권장.
 
@@ -189,7 +195,7 @@ git checkout -b feat/<작업이름>
 ./tapply.sh     # 실제 반영 (--auto-approve 포함)
 
 # 테스트 종료 후 정리
-./tdestroy.sh   # --auto-approve 포함, 3초 카운트다운 후 실행
+./tdestroy.sh   # S3는 보존하고 나머지 DEV 인프라 삭제
 
 git push -u origin feat/<작업이름>
 gh pr create --base dev
@@ -204,7 +210,7 @@ State locking (`use_lockfile = true`) 덕분에 팀원 A 가 apply 중이면 B �
 | `tinit.sh` | 프로젝트 루트 | 필수 도구 / 인증 / `backend.hcl` 확인 후 `terraform init -backend-config=backend.hcl` |
 | `tplan.sh` | 프로젝트 루트 | AWS 인증 확인 → `terraform fmt` + `validate` + `plan` |
 | `tapply.sh` | 프로젝트 루트 | AWS 인증 확인 → `fmt` + `validate` + `apply --auto-approve` |
-| `tdestroy.sh` | 프로젝트 루트 | AWS 인증 확인 → 대상 Account/스택 안내 → 3초 카운트다운 → `destroy --auto-approve` |
+| `tdestroy.sh` | 프로젝트 루트 | AWS 인증 확인 → Kubernetes LoadBalancer Service 정리 → S3를 제외한 DEV 모듈만 삭제 |
 
 모두 `terraform/environments/dev` 를 대상으로 한다. Bootstrap 스택(`state-backend`, `terraform-access`)은 이 스크립트로 조작되지 않는다.
 Bootstrap 스택은 담당자가 해당 디렉터리로 직접 이동해서 `terraform` 명령을 실행한다 ([docs/architecture.md](docs/architecture.md) §5 참고).

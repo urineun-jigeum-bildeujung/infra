@@ -39,12 +39,10 @@ eks_endpoint_private_access = true
 eks_public_access_cidrs     = ["0.0.0.0/0"]
 
 # Cluster Admin 권한을 부여할 IAM User/Role ARN.
-# 담당자 IAM 사용자 하나만 우선 등록.
+# 현재 Terraform으로 관리하는 담당자 ARN을 모두 등록. 기존 항목을 제거하면 해당 Access Entry가 삭제된다.
 eks_cluster_admin_principal_arns = [
   "arn:aws:iam::297165773875:user/ujibil1",
   "arn:aws:iam::297165773875:user/ujibil2",
-  "arn:aws:iam::297165773875:user/ujibil3",
-  "arn:aws:iam::297165773875:user/ujibil4",
   "arn:aws:iam::297165773875:user/ujibil5",
 ]
 
@@ -85,4 +83,6 @@ ecr_repository_names = [
   "order-service",
   "payment-service",
   "product-service",
+  "notification-service",
+  "review-service",
 ]

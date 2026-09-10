@@ -321,8 +321,12 @@ destroy
 apply (재생성)
 ```
 
-`terraform destroy` 가 실행되어도 State 저장용 S3 Bucket 은 삭제되지 않는다.
-Bucket 은 `terraform/bootstrap/state-backend` 스택에서만 생성/관리한다.
+프로젝트 루트의 `./tdestroy.sh`는 `module.s3`를 삭제 대상에서 제외한다.
+따라서 State 저장용 `petflow-tfstate`뿐 아니라 DEV의 `static`, `product-images`,
+`uploads` Bucket도 유지되고, Network/IAM/EKS/Platform IAM/ECR만 삭제된다.
+각 S3 Bucket에는 `prevent_destroy = true`도 적용하여 일반 destroy 실수를 이중으로 차단한다.
+`tdestroy.sh`는 EKS보다 먼저 모든 `type=LoadBalancer` Service를 삭제하여 ELB, ENI,
+Security Group이 VPC 삭제를 막지 않도록 한다.
 
 ---
 

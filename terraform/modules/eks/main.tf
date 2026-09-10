@@ -50,6 +50,17 @@ resource "aws_eks_cluster" "main" {
 }
 
 # =============================================================================
+# Karpenter Security Group Discovery
+# =============================================================================
+# EKS 가 자동 생성하고 Managed Node Group 에도 연결하는 Cluster Security Group 하나만
+# Karpenter Discovery 대상으로 지정한다. EC2NodeClass 는 이 태그로 SG 를 탐색한다.
+resource "aws_ec2_tag" "karpenter_discovery_cluster_security_group" {
+  resource_id = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
+  key         = "karpenter.sh/discovery"
+  value       = aws_eks_cluster.main.name
+}
+
+# =============================================================================
 # EKS OIDC Provider (IRSA 및 Pod Identity 이외 통합 목적)
 # =============================================================================
 # EKS Cluster 는 각자의 OIDC issuer URL 을 가진다. 이를 AWS IAM OIDC Provider 로

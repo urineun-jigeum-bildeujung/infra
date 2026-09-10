@@ -21,16 +21,6 @@ variable "bucket_purposes" {
   default     = ["static", "product-images", "uploads"]
 }
 
-variable "force_destroy" {
-  description = <<-EOT
-    true 면 객체가 남아있는 Bucket 도 terraform destroy 로 삭제할 수 있다.
-    DEV 는 반복 destroy/apply 를 전제로 하므로 true 를 기본값으로 사용한다.
-    운영 환경에서는 반드시 false 로 두어 데이터 유실을 방지한다.
-  EOT
-  type        = bool
-  default     = true
-}
-
 variable "enable_versioning" {
   description = "Bucket Versioning 활성화 여부. DEV 는 버전 누적으로 인한 용량 과금을 피하기 위해 기본 비활성. 운영 전환 시 활성 검토."
   type        = bool

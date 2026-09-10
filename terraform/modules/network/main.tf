@@ -8,8 +8,7 @@
 #   - Public Route Table (1개, 모든 Public Subnet 공유)
 #   - Private Route Table (single_nat_gateway=true 이면 1개 공유, false 이면 AZ 별 N개)
 #   - Route Table Association
-#   - S3 Gateway VPC Endpoint (Private Route Table 연결)
-#   - EKS 자동 인식용 subnet 태그
+#   - EKS/Karpenter 자동 인식용 subnet 태그
 #
 # 참고:
 #   Public / Private Subnet 은 azs 리스트 순서에 맞춰 public_subnet_cidrs /
@@ -96,6 +95,8 @@ resource "aws_subnet" "private" {
     Tier = "private"
     # EKS 가 내부 전용 (internal) ALB 를 이 subnet 에 배치할 수 있도록 인식하는 태그
     "kubernetes.io/role/internal-elb" = "1"
+    # Karpenter EC2NodeClass 가 Worker Node 용 Private Subnet 을 자동 탐색한다.
+    "karpenter.sh/discovery" = "${var.project_name}-eks"
   }
 }
 

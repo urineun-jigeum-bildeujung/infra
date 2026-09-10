@@ -31,6 +31,11 @@ output "private_subnets_by_az" {
   value       = { for az, s in aws_subnet.private : az => s.id }
 }
 
+output "karpenter_discovery_value" {
+  description = "Karpenter EC2NodeClass 의 subnetSelectorTerms 에 사용할 Discovery Tag 값"
+  value       = "${var.project_name}-eks"
+}
+
 output "internet_gateway_id" {
   description = "Internet Gateway ID"
   value       = aws_internet_gateway.main.id

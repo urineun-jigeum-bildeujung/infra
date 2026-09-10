@@ -64,6 +64,21 @@ Hosted Zone은 재생성할 때마다 NS가 바뀌므로 Terraform의 일반
 `destroy` 대상에 포함하지 않는다. DEV 정리는 반드시 프로젝트 루트의
 `tdestroy.sh`를 사용한다.
 
+## Hosted Zone 삭제 보호
+
+삭제 방지는 두 계층으로 적용한다.
+
+- DEV Route53 리소스: Terraform `prevent_destroy = true`
+- Bootstrap IAM: 보호 Zone ARN의 `route53:DeleteHostedZone` 명시적 Deny
+
+Bootstrap 정책은 DEV와 별도 state에서 관리하며 GitHub Actions Terraform
+Role과 지정한 팀 IAM 사용자에게 연결한다. 다른 정책에
+`AdministratorAccess`가 있어도 명시적 Deny가 우선한다. 보호 정책 자체를
+의도적으로 분리하지 않는 한 콘솔, CLI, Terraform 모두 Zone 삭제가 거부된다.
+
+레코드 생성·변경은 차단하지 않으므로 ACM 검증 CNAME과 ALB Alias는 계속
+Terraform으로 관리할 수 있다.
+
 ## Phase 1 - Route53 Hosted Zone
 
 Public Hosted Zone 생성 코드는 완료됐다. 도메인은 DEV

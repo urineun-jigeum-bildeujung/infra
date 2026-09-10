@@ -8,3 +8,13 @@ state_bucket_name = "petflow-tfstate"
 # GitHub Actions OIDC Role 을 신뢰할 GitHub 소유 조직 / 저장소
 github_org  = "your-github-org"
 github_repo = "infra"
+
+# 영구 보존할 Route53 Hosted Zone과 Terraform 실행 사용자
+protected_route53_zone_ids = ["Z10307303I03OBEI24QKC"]
+route53_protection_user_names = [
+  "ujibil1",
+  "ujibil2",
+  "ujibil3",
+  "ujibil4",
+  "ujibil5",
+]

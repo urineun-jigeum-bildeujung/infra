@@ -46,7 +46,7 @@ infra/
 ├─ terraform/
 │  ├─ bootstrap/             # DEV destroy 대상 아님 — 최초 1회 생성 후 유지
 │  │  ├─ state-backend/      # Terraform State 저장용 S3 Bucket
-│  │  └─ terraform-access/   # Terraform 실행 Role, GitHub Actions OIDC Role, State 접근 Policy
+│  │  └─ terraform-access/   # Terraform Role/OIDC, State 접근, Route53 삭제 차단 Policy
 │  │
 │  ├─ modules/               # 재사용 가능한 Terraform 모듈 (DEV 삭제 대상)
 │  │  ├─ network/            # VPC, Subnet, IGW, NAT, Route Table

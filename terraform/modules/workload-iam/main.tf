@@ -1,33 +1,28 @@
-# CNPG PostgreSQL Pod 의 S3 백업/복구 전용 IRSA. Operator Role 이 아니다.
+# CNPG PostgreSQL Pod 의 S3 백업/복구 전용 EKS Pod Identity. Operator Role 이 아니다.
 data "aws_iam_policy_document" "cnpg_trust" {
   statement {
-    sid     = "AllowCNPGServiceAccount"
+    sid     = "AllowPodIdentityAssume"
     effect  = "Allow"
-    actions = ["sts:AssumeRoleWithWebIdentity"]
+    actions = ["sts:AssumeRole", "sts:TagSession"]
 
     principals {
-      type        = "Federated"
-      identifiers = [var.oidc_provider_arn]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "${trimprefix(var.oidc_provider_url, "https://")}:sub"
-      values   = ["system:serviceaccount:${var.cnpg_namespace}:${var.cnpg_service_account_name}"]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "${trimprefix(var.oidc_provider_url, "https://")}:aud"
-      values   = ["sts.amazonaws.com"]
+      type        = "Service"
+      identifiers = ["pods.eks.amazonaws.com"]
     }
   }
 }
 
 resource "aws_iam_role" "cnpg_backup" {
   name               = "${var.project_name}-${var.environment}-cnpg-backup"
-  description        = "CNPG Barman Cloud S3 backup and restore via IRSA"
+  description        = "CNPG Barman Cloud S3 backup and restore via EKS Pod Identity"
   assume_role_policy = data.aws_iam_policy_document.cnpg_trust.json
+}
+
+resource "aws_eks_pod_identity_association" "cnpg_backup" {
+  cluster_name    = var.cluster_name
+  namespace       = var.cnpg_namespace
+  service_account = var.cnpg_service_account_name
+  role_arn        = aws_iam_role.cnpg_backup.arn
 }
 
 data "aws_iam_policy_document" "cnpg_backup" {

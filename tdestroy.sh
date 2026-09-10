@@ -30,9 +30,12 @@ cleanup_kubernetes_load_balancers() {
   local cluster_name
   local aws_region
   local load_balancer_services
+  local alb_ingresses
   local service_ref
+  local ingress_ref
   local namespace
   local service_name
+  local ingress_name
 
   cluster_name="$(terraform output -raw eks_cluster_name 2>/dev/null || true)"
   aws_region="$(terraform output -raw aws_region 2>/dev/null || true)"
@@ -57,9 +60,11 @@ cleanup_kubernetes_load_balancers() {
 
   load_balancer_services="$(kubectl --kubeconfig "${TEMP_KUBECONFIG}" get services --all-namespaces \
     -o jsonpath='{range .items[?(@.spec.type=="LoadBalancer")]}{.metadata.namespace}{"/"}{.metadata.name}{"\n"}{end}')"
+  alb_ingresses="$(kubectl --kubeconfig "${TEMP_KUBECONFIG}" get ingresses --all-namespaces \
+    -o jsonpath='{range .items[?(@.spec.ingressClassName=="alb")]}{.metadata.namespace}{"/"}{.metadata.name}{"\n"}{end}')"
 
-  if [[ -z "${load_balancer_services}" ]]; then
-    echo "[tdestroy] 삭제할 Kubernetes LoadBalancer Service가 없습니다."
+  if [[ -z "${load_balancer_services}" && -z "${alb_ingresses}" ]]; then
+    echo "[tdestroy] 삭제할 Kubernetes LoadBalancer Service/ALB Ingress가 없습니다."
     return
   fi
 
@@ -67,7 +72,17 @@ cleanup_kubernetes_load_balancers() {
   kubectl --kubeconfig "${TEMP_KUBECONFIG}" scale statefulset argocd-application-controller \
     --namespace argocd --replicas=0 --timeout=60s >/dev/null 2>&1 || true
 
+  while IFS= read -r ingress_ref; do
+    [[ -z "${ingress_ref}" ]] && continue
+    namespace="${ingress_ref%%/*}"
+    ingress_name="${ingress_ref#*/}"
+    echo "[tdestroy] Kubernetes ALB Ingress 삭제: ${namespace}/${ingress_name}"
+    kubectl --kubeconfig "${TEMP_KUBECONFIG}" delete ingress "${ingress_name}" \
+      --namespace "${namespace}" --wait=true --timeout=10m
+  done <<< "${alb_ingresses}"
+
   while IFS= read -r service_ref; do
+    [[ -z "${service_ref}" ]] && continue
     namespace="${service_ref%%/*}"
     service_name="${service_ref#*/}"
     echo "[tdestroy] Kubernetes LoadBalancer Service 삭제: ${namespace}/${service_name}"

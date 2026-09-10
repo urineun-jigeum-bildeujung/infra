@@ -34,7 +34,7 @@ CAA, SRV 레코드와 DNSSEC 설정을 반드시 다시 확인한다. 필요한 
 Route53에 먼저 동일하게 생성해야 한다. Cloudflare 프록시 IP는 원본 서버
 주소가 아니므로 Route53 A 레코드로 그대로 복사하지 않는다.
 
-## 현재 DNS 상태와 복구 필요 사항
+## 현재 DNS 상태
 
 2026-09-10 14:48(KST)에 기존 Hosted Zone `Z0266642X83210S9XPSO`이
 Terraform 작업으로 삭제됐고, 14:54에 새 Hosted Zone
@@ -50,9 +50,9 @@ ns-589.awsdns-09.net
 ns-2020.awsdns-60.co.uk
 ```
 
-현재 카페24는 삭제된 Zone의 NS를 가리키며 공개 DNS 조회는 `SERVFAIL`이다.
-ACM 적용 전에 카페24 NS를 위 4개로 교체하고 다음 세 조회가 모두 새 NS를
-반환하는지 확인한다.
+카페24 NS는 위 Route53 NS 4개로 변경됐고 공개 DNS 전파가 완료됐다.
+Cloudflare와 Google Public DNS 및 `.shop` Registry 위임이 모두 같은 NS를
+반환한다. ACM 인증서는 `ISSUED`, DNS Validation은 `SUCCESS` 상태다.
 
 ```bash
 dig +short NS leechs.shop
@@ -112,7 +112,7 @@ terraform output route53_name_servers
 `-target`은 이번처럼 생명주기가 분리된 리소스를 최초 도입하는 예외 상황에만
 사용한다. 적용 후 출력된 Hosted Zone ID와 NS 4개를 팀 내부 문서에 기록한다.
 
-## Phase 2 - 카페24 네임서버 전환
+## Phase 2 - 카페24 네임서버 전환 (완료)
 
 1. Cloudflare의 기존 레코드와 DNSSEC/DS 설정을 최종 확인한다.
 2. Route53에 서비스에 필요한 기존 레코드를 먼저 준비한다.
@@ -126,10 +126,9 @@ dig @1.1.1.1 +short NS leechs.shop
 dig @8.8.8.8 +short NS leechs.shop
 ```
 
-ALB와 루트/API Alias가 아직 없다면 네임서버 전환 후 웹 접속은 서비스되지
-않는다. 허용 가능한 점검 기간인지 팀과 확인하고 전환한다.
+루트/API Alias는 실제 서비스 Ingress가 준비된 뒤 필요한 호스트만 추가한다.
 
-## Phase 3 - ACM
+## Phase 3 - ACM (완료)
 
 ACM 코드 구현은 완료됐으며 Route53 위임 전파를 확인한 뒤 적용한다.
 
@@ -159,6 +158,9 @@ AWS Load Balancer Controller로 ALB를 생성한 뒤 필요한 호스트만 연�
 Ingress에는 HTTPS 443 리스너와 ACM ARN을 지정하고, Route53에는 ALB DNS
 이름/Hosted Zone ID를 대상으로 하는 A/AAAA Alias를 만든다. 마지막으로
 DNS, 인증서 체인, HTTPS 응답과 각 호스트의 라우팅을 확인한다.
+
+임시 nginx를 이용한 End-to-End 검증과 정리 방법은
+[alb-https-test.md](alb-https-test.md)를 따른다.
 
 ## 완료 기준
 

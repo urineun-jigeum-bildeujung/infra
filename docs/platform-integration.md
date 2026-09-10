@@ -79,6 +79,7 @@ AWS_PROFILE=ujibil2 ./scripts/install-alb-controller.sh
 Helm values는 `kubernetes/alb-controller/values-dev.yaml`에서 관리한다. 기존
 `ingress-nginx` LoadBalancer Service에 영향을 주지 않도록 Service mutator webhook은
 비활성화하고, `ingressClassName: alb`인 Ingress만 ALB 대상으로 사용한다.
+Helm upgrade 중 webhook CA 불일치를 막기 위해 기존 TLS Secret을 재사용한다.
 
 ## Terraform Output
 

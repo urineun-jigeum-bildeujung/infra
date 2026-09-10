@@ -110,7 +110,10 @@ resource "aws_instance" "router" {
     SYSCTL
     sysctl --system
 
-    dnf install -y curl
+    # Amazon Linux 2023은 curl-minimal에 curl 바이너리가 포함되어 있으므로
+    # 일반 curl 패키지를 별도로 설치하지 않는다.
+    command -v curl >/dev/null 2>&1 || dnf install -y curl-minimal
+
     curl -fsSL https://tailscale.com/install.sh | sh
 
     systemctl enable --now amazon-ssm-agent

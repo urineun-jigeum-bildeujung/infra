@@ -5,6 +5,11 @@ variable "project_name" {
   type        = string
 }
 
+variable "aws_region" {
+  description = "VPC Endpoint 서비스 이름을 구성할 AWS 리전. 예: ap-northeast-2"
+  type        = string
+}
+
 variable "vpc_cidr" {
   description = "VPC 에서 사용할 CIDR 대역. 예: 10.0.0.0/20"
   type        = string

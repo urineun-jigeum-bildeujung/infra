@@ -3,10 +3,16 @@
 # 이 파일은 terraform/modules/ 하위의 각 모듈을 호출하여 Dev 환경 인프라를 조립한다.
 # 실제 리소스는 각 모듈 내부에서 정의하며, 여기서는 모듈 호출과 값 전달만 담당한다.
 
+locals {
+  # 기존 tfvars를 사용하는 팀원도 CNPG 백업 Bucket을 빠뜨리지 않도록 root에서 보장한다.
+  dev_s3_bucket_purposes = distinct(concat(var.s3_bucket_purposes, ["db-backups"]))
+}
+
 module "network" {
   source = "../../modules/network"
 
   project_name         = var.project_name
+  aws_region           = var.aws_region
   vpc_cidr             = var.vpc_cidr
   azs                  = var.azs
   public_subnet_cidrs  = var.public_subnet_cidrs
@@ -72,6 +78,25 @@ module "s3" {
 
   project_name    = var.project_name
   environment     = var.environment
-  bucket_purposes = var.s3_bucket_purposes
+  bucket_purposes = local.dev_s3_bucket_purposes
+  bucket_settings = {
+    db-backups = {
+      enable_versioning = true
+    }
+  }
   # 모든 애플리케이션 S3 Bucket은 force_destroy=false 및 prevent_destroy=true로 보호한다.
+}
+
+# CNPG PostgreSQL Pod가 Barman Cloud를 통해 S3에 백업할 때 사용하는 IRSA Role.
+module "workload_iam" {
+  source = "../../modules/workload-iam"
+
+  project_name              = var.project_name
+  environment               = var.environment
+  oidc_provider_arn         = module.eks.oidc_provider_arn
+  oidc_provider_url         = module.eks.oidc_provider_url
+  db_backups_bucket_arn     = module.s3.bucket_arns["db-backups"]
+  cnpg_namespace            = var.cnpg_namespace
+  cnpg_service_account_name = var.cnpg_service_account_name
+  cnpg_backup_prefix        = var.cnpg_backup_prefix
 }

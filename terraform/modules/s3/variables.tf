@@ -28,9 +28,8 @@ variable "enable_versioning" {
 }
 
 variable "bucket_settings" {
-  description = "용도별 설정 override. 생략한 항목은 공통 force_destroy / enable_versioning 값을 사용한다."
+  description = "용도별 Versioning 설정 override. 생략한 항목은 공통 enable_versioning 값을 사용한다."
   type = map(object({
-    force_destroy     = optional(bool)
     enable_versioning = optional(bool)
   }))
   default = {}

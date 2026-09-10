@@ -36,7 +36,7 @@ run "s3_gateway_endpoint_uses_private_route_tables" {
   }
 }
 
-run "backup_bucket_uses_dev_destroy_policy" {
+run "backup_bucket_is_versioned_and_all_buckets_are_protected" {
   command = plan
 
   module {
@@ -49,15 +49,14 @@ run "backup_bucket_uses_dev_destroy_policy" {
     bucket_purposes = ["static", "product-images", "uploads", "db-backups"]
     bucket_settings = {
       db-backups = {
-        force_destroy     = true
         enable_versioning = true
       }
     }
   }
 
   assert {
-    condition     = aws_s3_bucket.app["db-backups"].force_destroy && aws_s3_bucket.app["uploads"].force_destroy
-    error_message = "DEV에서는 백업 버킷과 기존 앱 버킷 모두 반복 destroy를 허용해야 합니다."
+    condition     = !aws_s3_bucket.app["db-backups"].force_destroy && !aws_s3_bucket.app["uploads"].force_destroy
+    error_message = "백업 버킷과 기존 앱 버킷은 객체 강제 삭제가 차단되어야 합니다."
   }
 
   assert {

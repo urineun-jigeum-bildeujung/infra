@@ -20,10 +20,10 @@ Pod Identity 의 미지원이 확인된 것도 아니며, 이 결정은 공식 �
 ## 리소스와 권한
 
 - DEV root 는 기존 s3_bucket_purposes 에 db-backups 를 중복 없이 추가한다.
-- 기존 앱 버킷 주소와 기본 설정은 유지한다. DEV의 db-backups 는 반복 destroy/apply를 위해 force_destroy=true, Versioning=true 이다.
-- 실제 복구/보관 정책 검증을 시작하기 전에는 db-backups 의 force_destroy를 false로 바꿔 백업 객체 보존을 강제한다.
+- 기존 앱 버킷 주소와 보호 설정은 유지한다. db-backups 는 force_destroy=false,
+  prevent_destroy=true 로 보호하고 백업 복구를 위해 Versioning=true 로 설정한다.
 - Public Access Block, SSE-S3(AES256), TLS 강제는 기존 S3 모듈 설정을 상속한다.
-- force_destroy는 Terraform destroy 시 객체/버전을 강제 비우는 동작만 제어한다. false로 바꿔도 빈 버킷 삭제, 관리자 직접 삭제까지 막는 장치는 아니다.
+- `tdestroy.sh`는 S3를 보존하고 CNPG IRSA Role을 포함한 나머지 DEV 인프라만 제거한다.
 - Role 의 OIDC trust 는 정확한 namespace/ServiceAccount sub 와 aud=sts.amazonaws.com 을 요구한다.
 - 전용 버킷에서 ListBucket 을 허용한다. Barman HeadBucket 검사에는 prefix 조건이 없어 목록 권한을 prefix 로 제한하지 않는다.
 - 객체 GetObject/PutObject/AbortMultipartUpload/DeleteObject 는 cnpg_backup_prefix 아래로 제한한다.
@@ -42,6 +42,15 @@ CNPG 는 일반적으로 Cluster 이름과 같은 ServiceAccount 를 생성한�
 - cnpg_backup_role_arn: Cluster.spec.serviceAccountTemplate.metadata.annotations 의 eks.amazonaws.com/role-arn
 - cnpg_backup_destination_path: ObjectStore.spec.configuration.destinationPath
 - cnpg_backup_service_account: PostgreSQL Pod 의 namespace 와 ServiceAccount 확인
+
+Barman ObjectStore에는 ServiceAccount의 IRSA Role을 사용하도록 다음 설정을 명시해야 한다.
+
+```yaml
+spec:
+  configuration:
+    s3Credentials:
+      inheritFromIAMRole: true
+```
 
 Cluster 의 관련 부분 예시 (전체 배포 manifest 가 아님):
 

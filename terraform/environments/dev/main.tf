@@ -50,6 +50,7 @@ module "eks" {
   # Node Group
   node_instance_types = var.eks_node_instance_types
   node_ami_type       = var.eks_node_ami_type
+  node_disk_size      = var.eks_node_disk_size
   node_desired_size   = var.eks_node_desired_size
   node_min_size       = var.eks_node_min_size
   node_max_size       = var.eks_node_max_size

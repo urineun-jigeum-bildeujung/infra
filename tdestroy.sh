@@ -109,6 +109,7 @@ sleep 3
 cleanup_kubernetes_load_balancers
 
 terraform destroy --auto-approve \
+  -target=module.tailscale \
   -target=module.workload_iam \
   -target=module.platform_iam \
   -target=module.eks \

@@ -41,7 +41,8 @@ infra/
 │  ├─ dev-infra-validation.md # DEV 플랫폼 기반 검증 결과
 │  ├─ jenkins-kaniko-ecr.md   # Jenkins Kaniko / ECR 연동 계약
 │  ├─ platform-integration.md  # Karpenter / ALB Controller GitOps 연동 계약
-│  └─ route53-acm.md           # leechs.shop DNS 이전 / ACM 단계별 절차
+│  ├─ route53-acm.md           # leechs.shop DNS 이전 / ACM 단계별 절차
+│  └─ tailscale-access.md      # Tailscale Router 구성 / 인증 / Private EKS 검증
 │
 ├─ terraform/
 │  ├─ bootstrap/             # DEV destroy 대상 아님 — 최초 1회 생성 후 유지
@@ -54,7 +55,8 @@ infra/
 │  │  ├─ iam/                # EKS / ALB / Karpenter / 애플리케이션 Role (DEV 삭제 가능만)
 │  │  ├─ ecr/                # ECR Repository
 │  │  ├─ s3/                 # 애플리케이션용 S3 Bucket
-│  │  └─ route53-acm/        # Route53 Hosted Zone, ACM 인증서, DNS 검증
+│  │  ├─ route53-acm/        # Route53 Hosted Zone, ACM 인증서, DNS 검증
+│  │  └─ tailscale/          # 관리자 VPN용 Private Subnet Router EC2 / SSM
 │  │
 │  └─ environments/          # 실제 Terraform 실행 위치 (Root Module)
 │     └─ dev/                # DEV 환경: 위 모듈들을 조립
@@ -229,3 +231,4 @@ Bootstrap 스택은 담당자가 해당 디렉터리로 직접 이동해서 `ter
 - [docs/architecture.md](docs/architecture.md) — 아키텍처 원칙, Bootstrap ↔ DEV 생명주기 분리, Bootstrap 담당자 최초 실행 절차, AWS 계정 발급 전 작업 원칙
 - [docs/route53-acm.md](docs/route53-acm.md) — leechs.shop Route53 이전, ACM 및 ALB 연결 단계
 - [docs/alb-https-test.md](docs/alb-https-test.md) — AWS Load Balancer Controller 설치 및 test.leechs.shop HTTPS 통합 검증
+- [docs/tailscale-access.md](docs/tailscale-access.md) — AWS 전용 Subnet Router 적용, Tailnet 인증, Private EKS 접근 검증

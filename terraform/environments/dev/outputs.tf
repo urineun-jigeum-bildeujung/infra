@@ -37,6 +37,24 @@ output "s3_gateway_endpoint_id" {
   value       = module.network.s3_gateway_endpoint_id
 }
 
+# =============================================================================
+# Tailscale 관리자 VPN
+# =============================================================================
+output "tailscale_router_instance_id" {
+  description = "SSM Session Manager 접속에 사용할 Tailscale Router EC2 ID"
+  value       = try(module.tailscale[0].instance_id, null)
+}
+
+output "tailscale_router_private_ip" {
+  description = "Private Subnet에 배치된 Tailscale Router EC2 IP"
+  value       = try(module.tailscale[0].private_ip, null)
+}
+
+output "tailscale_router_security_group_id" {
+  description = "Public inbound 규칙이 없는 Tailscale Router Security Group ID"
+  value       = try(module.tailscale[0].security_group_id, null)
+}
+
 output "vpc_cidr" {
   description = "Dev 환경 VPC CIDR"
   value       = module.network.vpc_cidr

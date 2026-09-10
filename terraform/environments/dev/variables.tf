@@ -55,6 +55,26 @@ variable "single_nat_gateway" {
 }
 
 # =============================================================================
+# Tailscale 관리자 VPN
+# =============================================================================
+variable "enable_tailscale_router" {
+  description = "DEV 관리자 접근용 Tailscale Subnet Router 생성 여부"
+  type        = bool
+  default     = true
+}
+
+variable "tailscale_instance_type" {
+  description = "Tailscale Subnet Router EC2 Instance Type"
+  type        = string
+  default     = "t3.micro"
+
+  validation {
+    condition     = length(trimspace(var.tailscale_instance_type)) > 0
+    error_message = "tailscale_instance_type은 비어 있을 수 없습니다."
+  }
+}
+
+# =============================================================================
 # EKS
 # =============================================================================
 variable "eks_cluster_version" {

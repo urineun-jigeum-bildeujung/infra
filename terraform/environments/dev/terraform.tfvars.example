@@ -27,6 +27,14 @@ private_subnet_cidrs = ["10.0.4.0/22", "10.0.8.0/22"]
 single_nat_gateway = true
 
 # =============================================================================
+# Tailscale 관리자 VPN
+# =============================================================================
+# AWS Private Subnet에 Petflow 전용 Subnet Router를 생성한다.
+# Auth Key는 Terraform에 넣지 않고, apply 후 SSM에서 브라우저 인증을 진행한다.
+enable_tailscale_router = true
+tailscale_instance_type = "t3.micro"
+
+# =============================================================================
 # EKS
 # =============================================================================
 # EKS 버전. AWS 지원 버전 목록: aws eks describe-cluster-versions

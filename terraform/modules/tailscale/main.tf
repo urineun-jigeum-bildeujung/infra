@@ -2,8 +2,8 @@
 #
 # AWS VPC 관리 트래픽 전용 Router를 Private Subnet에 배치한다.
 # EC2에는 Public IP와 inbound 규칙을 두지 않고 SSM Session Manager로만 관리한다.
-# Tailscale Auth Key는 Terraform State에 남기지 않기 위해 다루지 않으며,
-# 인스턴스 생성 후 관리자가 SSM에서 `tailscale up`을 직접 실행한다.
+# OAuth Secret 값은 Terraform State/User Data에 넣지 않고 Router가 부팅할 때
+# Secrets Manager에서 직접 조회하여 Tailnet에 자동 등록한다.
 
 locals {
   name = "${var.project_name}-${var.environment}-tailscale-router"
@@ -27,6 +27,15 @@ data "aws_iam_policy_document" "ec2_trust" {
   }
 }
 
+data "aws_iam_policy_document" "tailscale_secret" {
+  statement {
+    sid       = "ReadTailscaleOAuthSecret"
+    effect    = "Allow"
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = [var.tailscale_oauth_secret_arn]
+  }
+}
+
 resource "aws_iam_role" "router" {
   name               = local.name
   description        = "SSM access role for the Petflow Tailscale subnet router"
@@ -36,6 +45,12 @@ resource "aws_iam_role" "router" {
 resource "aws_iam_role_policy_attachment" "ssm" {
   role       = aws_iam_role.router.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+resource "aws_iam_role_policy" "tailscale_secret" {
+  name   = "${local.name}-secret"
+  role   = aws_iam_role.router.id
+  policy = data.aws_iam_policy_document.tailscale_secret.json
 }
 
 resource "aws_iam_instance_profile" "router" {
@@ -98,10 +113,11 @@ resource "aws_instance" "router" {
     delete_on_termination = true
   }
 
-  # Auth Key나 로그인 명령은 넣지 않는다. 설치와 IP Forwarding까지만 자동화한다.
+  # Secret 값은 User Data에 포함하지 않는다. 부팅 시 IAM Role로 Secrets Manager에서
+  # 조회하고 root만 읽을 수 있는 임시 파일을 통해 Tailscale에 전달한다.
   user_data = <<-EOT
     #!/bin/bash
-    set -euxo pipefail
+    set -euo pipefail
 
     hostnamectl set-hostname "${local.name}"
 
@@ -119,20 +135,43 @@ resource "aws_instance" "router" {
     systemctl enable --now amazon-ssm-agent
     systemctl enable --now tailscaled
 
-    # 관리자가 SSM 접속 후 명시적으로 실행하는 무인증 헬퍼다.
-    # Auth Key를 포함하지 않으며 실행 시 브라우저 인증 URL이 출력된다.
-    cat > /usr/local/sbin/petflow-tailscale-up <<'TAILSCALE_UP'
-    #!/bin/bash
-    exec tailscale up \
+    OAUTH_SECRET_FILE="/run/petflow/tailscale-oauth-secret"
+    install -d -m 0700 /run/petflow
+    umask 077
+    trap 'rm -f "$${OAUTH_SECRET_FILE}" "$${OAUTH_SECRET_FILE}.tmp"' EXIT
+
+    # Instance Profile/IAM Policy의 eventual consistency를 고려해 최대 3분 재시도한다.
+    for attempt in $(seq 1 18); do
+      if aws secretsmanager get-secret-value \
+        --secret-id "${var.tailscale_oauth_secret_arn}" \
+        --region "${var.aws_region}" \
+        --query SecretString \
+        --output text | tr -d '\r\n' > "$${OAUTH_SECRET_FILE}.tmp"; then
+        mv "$${OAUTH_SECRET_FILE}.tmp" "$${OAUTH_SECRET_FILE}"
+        break
+      fi
+
+      rm -f "$${OAUTH_SECRET_FILE}.tmp"
+      if ((attempt == 18)); then
+        echo "Tailscale OAuth Secret을 조회하지 못했습니다." >&2
+        exit 1
+      fi
+      sleep 10
+    done
+
+    printf '%s\n' '?ephemeral=false&preauthorized=true' >> "$${OAUTH_SECRET_FILE}"
+
+    tailscale up \
+      --auth-key="file:$${OAUTH_SECRET_FILE}" \
       --hostname="${local.name}" \
-      --advertise-routes="${var.vpc_cidr}" \
-      "$@"
-    TAILSCALE_UP
-    chmod 0755 /usr/local/sbin/petflow-tailscale-up
+      --advertise-tags="tag:petflow-router" \
+      --advertise-routes="${var.vpc_cidr}"
+
+    rm -f "$${OAUTH_SECRET_FILE}"
+    trap - EXIT
   EOT
 
-  # User Data 변경이 실제 인스턴스에도 적용되도록 교체한다. 교체된 Router는
-  # Tailnet 재인증과 Route 재승인이 필요하므로 plan에서 replacement를 확인한다.
+  # User Data 변경이 실제 인스턴스에도 적용되도록 교체한다.
   user_data_replace_on_change = true
 
   tags = {
@@ -140,5 +179,8 @@ resource "aws_instance" "router" {
     Role = "TailscaleSubnetRouter"
   }
 
-  depends_on = [aws_iam_role_policy_attachment.ssm]
+  depends_on = [
+    aws_iam_role_policy_attachment.ssm,
+    aws_iam_role_policy.tailscale_secret,
+  ]
 }

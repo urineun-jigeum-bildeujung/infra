@@ -2,228 +2,179 @@
 
 ## 목적
 
-일반 사용자 트래픽과 관리자 트래픽을 분리하고, EKS API와 내부 관리 서비스에 인터넷 공개 없이 접근하기 위해 AWS 전용 Tailscale Subnet Router를 사용한다.
+EKS API와 내부 관리 서비스를 인터넷에 공개하지 않고 Windows 관리자 PC에서 AWS VPC로 접근하기 위해 전용 Tailscale Subnet Router를 사용한다.
 
-```text
-관리자 PC / VMware
+~~~text
+Windows 관리자 PC
         │
         ▼
-기존 Tailscale Tailnet
+Tailscale Tailnet
         │
         ▼
 petflow-dev-tailscale-router
-        │ advertise 10.0.0.0/20
+        │ 10.0.0.0/20 광고
         ▼
 AWS VPC / EKS Private API / 내부 관리 서비스
-```
+~~~
 
-기존 Tailnet의 `mgmt` 장비는 변경하거나 재사용하지 않는다.
+Router EC2는 Terraform으로 생성하며, 부팅할 때 AWS Secrets Manager의 OAuth Secret을 조회해 자동으로 Tailnet에 등록한다. Secret 값은 Terraform 코드, tfvars, User Data, State에 저장하지 않는다.
 
-## Terraform 구성
+## 현재 운영 기준
 
-`modules/tailscale`은 다음 리소스를 관리한다.
+- EKS Public Endpoint: 비활성화
+- EKS Private Endpoint: 활성화
+- Petflow Router 광고 대역: 10.0.0.0/20
+- Router 식별 태그: tag:petflow-router
+- Router EC2: Private Subnet, Public IP 없음, inbound Security Group 규칙 없음
+- 관리자 접속: SSM Session Manager
 
-- Private Subnet의 Amazon Linux 2023 `t3.micro` EC2
-- Public IP와 inbound 규칙이 없는 전용 Security Group
-- EKS Private API TCP 443 접근용 Security Group 참조 규칙
-- EC2 IAM Role과 Instance Profile
-- `AmazonSSMManagedInstanceCore` 정책 연결
-- 암호화된 8GiB gp3 root EBS
-- IMDSv2 강제
-- Tailscale 설치와 IPv4 forwarding 활성화 User Data
+VMware LAN과 기존 Tailnet mgmt Route가 모두 172.16.8.0/24이므로 VMware에서는 Route 수락을 끈다.
 
-Tailscale Auth Key는 Terraform 변수, User Data, State에 저장하지 않는다. Tailnet 로그인과 Route 승인은 인스턴스 생성 후 수동으로 수행한다.
+~~~bash
+sudo tailscale set --accept-routes=false
+~~~
 
-초기 구성은 Tailscale의 기본 SNAT을 사용하므로 EC2의 `source_dest_check`를 유지한다. SNAT을 비활성화하는 구조로 바꿀 때만 AWS Route Table과 source/destination check를 다시 설계한다.
+VMware는 Terraform/Git/AWS CLI 작업에 사용하고, EKS Private API와 관리 서비스 접근은 Windows Tailscale 클라이언트에서 수행한다.
 
-## 1. Terraform 적용
+## 자동 인증 흐름
 
-프로젝트 루트에서 실행한다.
+~~~text
+terraform apply
+  → Router EC2 생성
+  → cloud-init에서 Tailscale 설치
+  → Instance Role로 Secrets Manager Secret 조회
+  → OAuth client secret으로 자동 인증
+  → tag:petflow-router 적용
+  → 10.0.0.0/20 광고
+  → Tailnet autoApprovers가 Route 승인
+~~~
 
-```bash
-cd ~/project/tong-p/infra
+OAuth Secret은 root만 읽을 수 있는 /run 임시 파일에 저장하고 인증 직후 삭제한다. cloud-init은 set -x를 사용하지 않는다. OAuth 등록은 재생성되는 서버에 맞게 ephemeral=false, preauthorized=true로 요청한다.
+
+## Tailnet 최초 1회 설정
+
+Access Controls의 기존 정책을 통째로 덮어쓰지 말고 다음 항목을 병합한다.
+
+~~~json
+{
+  "tagOwners": {
+    "tag:petflow-router": [
+      "autogroup:admin"
+    ]
+  },
+  "autoApprovers": {
+    "routes": {
+      "10.0.0.0/20": [
+        "tag:petflow-router"
+      ]
+    }
+  }
+}
+~~~
+
+Trust credentials에서 다음 조건의 OAuth Client를 생성한다.
+
+- 이름: petflow-dev-router
+- Scope: auth_keys
+- Tag: tag:petflow-router
+
+OAuth Client가 허용받은 태그와 Router가 광고하는 태그가 일치해야 한다. 자세한 동작은 [Tailscale OAuth clients](https://tailscale.com/docs/features/oauth-clients)와 [Subnet routers](https://tailscale.com/docs/features/subnet-routers)를 참고한다.
+
+## AWS Secrets Manager 최초 1회 설정
+
+반드시 대상 계정이 297165773875인지 먼저 확인한다.
+
+~~~bash
 export AWS_PROFILE=ujibil2
-
 aws sts get-caller-identity
-./tinit.sh
+~~~
+
+Secret이 없을 때만 생성한다. 실제 값은 문서, Git, PR 본문, 셸 히스토리에 남기지 않는다.
+
+~~~bash
+aws secretsmanager create-secret \
+  --name petflow/tailscale/oauth-secret \
+  --region ap-northeast-2 \
+  --secret-string '<TAILSCALE_OAUTH_SECRET>'
+~~~
+
+Terraform에는 Secret 값 대신 ARN만 설정한다.
+
+~~~bash
+aws secretsmanager describe-secret \
+  --secret-id petflow/tailscale/oauth-secret \
+  --region ap-northeast-2 \
+  --query ARN \
+  --output text
+~~~
+
+로컬 terraform/environments/dev/terraform.tfvars에 출력된 ARN을 tailscale_oauth_secret_arn 값으로 넣는다. 이 파일은 Git에서 제외된다.
+
+Router IAM Role은 해당 ARN의 secretsmanager:GetSecretValue만 허용한다. OAuth Secret은 DEV destroy target에 포함되지 않아 Router/VPC/EKS를 삭제해도 유지된다.
+
+## 적용
+
+~~~bash
+export AWS_PROFILE=ujibil2
 terraform -chdir=terraform/environments/dev test -filter=tests/tailscale.tftest.hcl
 ./tplan.sh
-```
+~~~
 
-Plan에서 기존 리소스의 삭제 또는 교체가 없고 Tailscale Router 관련 리소스만 추가되는지 확인한 뒤 적용한다.
+정상 Plan 범위는 Router IAM inline policy 추가와 User Data 변경에 따른 Router EC2 교체다. EKS, Node Group, VPC, Route53, S3, ECR 또는 CNPG IAM의 교체/삭제가 나타나면 적용하지 않는다.
 
-```bash
+~~~bash
 ./tapply.sh
-```
+~~~
 
-출력값을 확인한다.
+## 자동 등록 검증
 
-```bash
+Terraform output에서 새 Router ID를 확인하고 SSM으로 접속한다.
+
+~~~bash
 terraform -chdir=terraform/environments/dev output tailscale_router_instance_id
-terraform -chdir=terraform/environments/dev output tailscale_router_private_ip
-```
 
-## 2. SSM 등록 확인과 접속
-
-```bash
-ROUTER_ID="$(terraform -chdir=terraform/environments/dev output -raw tailscale_router_instance_id)"
-
-aws ssm describe-instance-information \
-  --region ap-northeast-2 \
-  --filters "Key=InstanceIds,Values=${ROUTER_ID}" \
-  --query 'InstanceInformationList[].{Id:InstanceId,Ping:PingStatus,Platform:PlatformName}' \
-  --output table
-```
-
-`PingStatus=Online`이 된 뒤 접속한다.
-
-```bash
 aws ssm start-session \
-  --target "${ROUTER_ID}" \
+  --target <ROUTER_INSTANCE_ID> \
   --region ap-northeast-2
-```
+~~~
 
-로컬에서 Session Manager Plugin 오류가 나면 AWS 공식 Session Manager Plugin을 먼저 설치해야 한다.
+Router에서 확인한다.
 
-## 3. Router 초기 상태 확인
-
-SSM 세션 안에서 실행한다.
-
-```bash
-sudo cloud-init status --wait
-sudo systemctl status tailscaled --no-pager
-sudo sysctl net.ipv4.ip_forward
-tailscale version
-```
+~~~bash
+sudo cloud-init status --long
+sudo tailscale status
+sudo tailscale ip -4
+sudo grep -Ei 'tskey-|auth-key' /var/log/cloud-init-output.log
+~~~
 
 정상 기준:
 
-- Cloud-init: `status: done`
-- tailscaled: `active (running)`
-- `net.ipv4.ip_forward = 1`
+- cloud-init status가 done
+- petflow-dev-tailscale-router가 Connected
+- tag:petflow-router 적용
+- 10.0.0.0/20 Route 활성화
+- 실제 OAuth Secret 문자열이 cloud-init 로그에 없음
+- SSM에서 tailscale up 실행이나 브라우저 인증이 필요하지 않음
 
-설치 실패 시 다음 로그를 확인한다.
+Windows에서 최종 검증한다.
 
-```bash
-sudo tail -n 200 /var/log/cloud-init-output.log
-sudo journalctl -u tailscaled --no-pager -n 100
-```
-
-## 4. Tailnet 등록과 Route 광고
-
-SSM 세션에서 제공된 헬퍼를 실행한다.
-
-```bash
-sudo petflow-tailscale-up
-```
-
-이는 다음 명령과 같다.
-
-```bash
-sudo tailscale up \
-  --hostname=petflow-dev-tailscale-router \
-  --advertise-routes=10.0.0.0/20
-```
-
-출력된 인증 URL을 브라우저에서 열어 기존 Tailnet에 로그인한다. Auth Key를 코드나 셸 기록에 넣지 않는다.
-
-## 5. Tailscale Admin Console
-
-기존 `mgmt` 장비는 건드리지 않고 신규 장비만 확인한다.
-
-- Machine: `petflow-dev-tailscale-router`
-- Advertised subnet: `10.0.0.0/20`
-- Subnet Route 승인
-- 필요한 관리자 사용자/그룹만 Route를 사용할 수 있도록 Tailnet ACL 검토
-
-Router를 재생성하면 이전 Device Entry를 직접 제거하고 신규 Route를 다시 승인해야 한다.
-
-## 6. 관리자 PC / VMware 검증
-
-같은 Tailnet에 연결된 클라이언트에서 실행한다.
-
-```bash
-tailscale status
+~~~bash
 tailscale ping petflow-dev-tailscale-router
-```
-
-VPC DNS Resolver와 EKS Endpoint를 확인한다.
-
-```bash
-EKS_ENDPOINT="$(aws eks describe-cluster \
-  --name petflow-eks \
-  --region ap-northeast-2 \
-  --query 'cluster.endpoint' \
-  --output text)"
-EKS_HOST="${EKS_ENDPOINT#https://}"
-
-dig @10.0.0.2 "${EKS_HOST}"
-```
-
-응답이 VPC 내부 주소로 반환되고 Tailscale 연결을 끊었을 때 동일한 사설 경로를 사용할 수 없어야 한다.
-
-## 7. kubectl / k9s 검증
-
-```bash
-export AWS_PROFILE=ujibil2
-
-aws eks update-kubeconfig \
-  --name petflow-eks \
-  --region ap-northeast-2 \
-  --alias petflow-dev
-
 kubectl --context petflow-dev get nodes
 kubectl --context petflow-dev get pods -A
-k9s --context petflow-dev
-```
+~~~
 
-목표는 Worker Node 2대가 `Ready`이고 전체 필수 Add-on Pod가 `Running`인 것이다.
+Tailscale을 끄면 EKS Private API 접근이 실패해야 한다.
 
-EKS Endpoint 호스트가 클라이언트의 일반 DNS에서 Public IP로 해석된다면 Public Endpoint를 끄기 전에 VPC DNS를 사용할 수 있는 Route53 Resolver 또는 Split DNS 구성을 먼저 마련한다.
+## destroy → apply 재생성 검증
 
-## 8. 관리 서비스 접근
+Kubernetes가 생성한 ALB Ingress와 LoadBalancer Service는 EKS API에 접근 가능한 Windows에서 먼저 정리한다. 그다음 VMware에서 DEV 인프라를 삭제하고 재생성한다.
 
-Tailscale은 ClusterIP를 PC에 직접 라우팅하지 않는다. 1차 접근은 EKS Private API를 통한 `kubectl port-forward`를 사용한다.
+~~~bash
+AWS_PROFILE=ujibil2 ./tdestroy.sh
+AWS_PROFILE=ujibil2 ./tapply.sh
+~~~
 
-```bash
-# Argo CD
-kubectl -n argocd port-forward svc/argocd-server 8080:443
+재생성 후 별도 SSM 인증, 브라우저 로그인, Route 수동 승인 없이 Router와 Private 관리 경로가 복구되어야 한다.
 
-# Grafana: 실제 Service 이름 확인 후 사용
-kubectl -n monitoring get svc
-kubectl -n monitoring port-forward svc/<grafana-service> 3000:80
-
-# Jenkins
-kubectl -n jenkins get svc
-kubectl -n jenkins port-forward svc/<jenkins-service> 8081:8080
-
-# CNPG PostgreSQL
-kubectl -n database port-forward svc/petflow-db-rw 5432:5432
-```
-
-CNPG 5432와 Jenkins, Argo CD, Grafana 관리 화면을 Public Internet에 직접 노출하지 않는다.
-
-## 9. EKS Public Endpoint 제한
-
-이번 1차 Terraform 변경에서는 Public Endpoint를 끄지 않는다. 다음 검증을 모두 통과한 뒤 별도 변경으로 진행한다.
-
-- Subnet Route 승인 완료
-- PC와 VMware에서 VPC 사설 경로 확인
-- EKS Private Endpoint DNS 확인
-- `kubectl get nodes`, `kubectl get pods -A`, `k9s` 성공
-- 장애 시 사용할 SSM 접근 확인
-
-중간 단계에서는 관리자 공인 IP CIDR로 제한하고, 최종적으로 다음 값을 적용한다.
-
-```hcl
-eks_endpoint_public_access  = false
-eks_endpoint_private_access = true
-```
-
-변경 전에는 반드시 Plan을 확인하고, 현재 접속 세션과 별도로 두 번째 터미널에서 Private API 접근을 재검증한다.
-
-## 10. Destroy와 수동 정리
-
-Router는 DEV 인프라 생명주기를 따르므로 `./tdestroy.sh` 대상이다. State, Route53 Hosted Zone, 애플리케이션 S3 버킷은 기존 정책대로 보존된다.
-
-Destroy 이후 Tailscale Admin Console의 `petflow-dev-tailscale-router` Device Entry는 Terraform이 관리하지 않으므로 직접 삭제한다.
+기존 Router가 non-ephemeral 장비로 Tailnet에 남아 있다면 destroy 후 Admin Console에서 오래된 Device Entry를 정리한다.

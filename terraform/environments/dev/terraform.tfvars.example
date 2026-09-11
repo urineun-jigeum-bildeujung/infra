@@ -30,9 +30,10 @@ single_nat_gateway = true
 # Tailscale 관리자 VPN
 # =============================================================================
 # AWS Private Subnet에 Petflow 전용 Subnet Router를 생성한다.
-# Auth Key는 Terraform에 넣지 않고, apply 후 SSM에서 브라우저 인증을 진행한다.
-enable_tailscale_router = true
-tailscale_instance_type = "t3.micro"
+# Secret 값이 아닌 Secrets Manager ARN만 설정한다.
+enable_tailscale_router     = true
+tailscale_instance_type     = "t3.micro"
+tailscale_oauth_secret_arn  = "arn:aws:secretsmanager:ap-northeast-2:ACCOUNT_ID:secret:petflow/tailscale/oauth-secret-xxxxxx"
 
 # =============================================================================
 # EKS

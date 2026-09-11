@@ -22,6 +22,8 @@ run "router_is_private_and_ssm_managed" {
   variables {
     project_name                  = "petflow"
     environment                   = "dev"
+    aws_region                    = "ap-northeast-2"
+    tailscale_oauth_secret_arn    = "arn:aws:secretsmanager:ap-northeast-2:297165773875:secret:petflow/tailscale/oauth-secret-ABC123"
     vpc_id                        = "vpc-0123456789abcdef0"
     vpc_cidr                      = "10.0.0.0/20"
     private_subnet_id             = "subnet-0123456789abcdef0"
@@ -74,7 +76,19 @@ run "router_is_private_and_ssm_managed" {
       aws_iam_role_policy_attachment.ssm.policy_arn ==
       "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
     )
-    error_message = "Router IAM Role에는 SSM Managed Instance Core 정책만 연결해야 합니다."
+    error_message = "Router IAM Role에는 SSM Managed Instance Core 정책을 연결해야 합니다."
+  }
+
+  assert {
+    condition = alltrue([
+      for statement in data.aws_iam_policy_document.tailscale_secret.statement :
+      statement.sid == "ReadTailscaleOAuthSecret" &&
+      toset(statement.actions) == toset(["secretsmanager:GetSecretValue"]) &&
+      toset(statement.resources) == toset([
+        "arn:aws:secretsmanager:ap-northeast-2:297165773875:secret:petflow/tailscale/oauth-secret-ABC123"
+      ])
+    ])
+    error_message = "Router IAM Role은 지정한 OAuth Secret의 GetSecretValue만 허용해야 합니다."
   }
 
   assert {
@@ -95,10 +109,15 @@ run "router_is_private_and_ssm_managed" {
     condition = (
       strcontains(aws_instance.router.user_data, "net.ipv4.ip_forward = 1") &&
       strcontains(aws_instance.router.user_data, "https://tailscale.com/install.sh") &&
+      strcontains(aws_instance.router.user_data, "aws secretsmanager get-secret-value") &&
+      strcontains(aws_instance.router.user_data, "--auth-key=\"file:$${OAUTH_SECRET_FILE}\"") &&
+      strcontains(aws_instance.router.user_data, "?ephemeral=false&preauthorized=true") &&
+      strcontains(aws_instance.router.user_data, "--advertise-tags=\"tag:petflow-router\"") &&
       strcontains(aws_instance.router.user_data, "--advertise-routes=\"10.0.0.0/20\"") &&
+      !strcontains(aws_instance.router.user_data, "set -euxo pipefail") &&
       !strcontains(lower(aws_instance.router.user_data), "tskey-")
     )
-    error_message = "User Data는 forwarding/Tailscale/Route 헬퍼를 준비하되 Auth Key를 포함하면 안 됩니다."
+    error_message = "User Data는 Secret을 노출하지 않고 OAuth 인증, 태그, Route 광고를 자동 구성해야 합니다."
   }
 
   assert {
@@ -117,6 +136,8 @@ run "reject_too_small_root_volume" {
   variables {
     project_name                  = "petflow"
     environment                   = "dev"
+    aws_region                    = "ap-northeast-2"
+    tailscale_oauth_secret_arn    = "arn:aws:secretsmanager:ap-northeast-2:297165773875:secret:petflow/tailscale/oauth-secret-ABC123"
     vpc_id                        = "vpc-0123456789abcdef0"
     vpc_cidr                      = "10.0.0.0/20"
     private_subnet_id             = "subnet-0123456789abcdef0"
@@ -125,4 +146,25 @@ run "reject_too_small_root_volume" {
   }
 
   expect_failures = [var.root_volume_size]
+}
+
+run "reject_wildcard_secret_arn" {
+  command = plan
+
+  module {
+    source = "../../modules/tailscale"
+  }
+
+  variables {
+    project_name                  = "petflow"
+    environment                   = "dev"
+    aws_region                    = "ap-northeast-2"
+    tailscale_oauth_secret_arn    = "arn:aws:secretsmanager:ap-northeast-2:297165773875:secret:*"
+    vpc_id                        = "vpc-0123456789abcdef0"
+    vpc_cidr                      = "10.0.0.0/20"
+    private_subnet_id             = "subnet-0123456789abcdef0"
+    eks_cluster_security_group_id = "sg-0123456789abcdef0"
+  }
+
+  expect_failures = [var.tailscale_oauth_secret_arn]
 }

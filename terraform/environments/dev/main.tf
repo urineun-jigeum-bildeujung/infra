@@ -20,7 +20,7 @@ module "network" {
   single_nat_gateway   = var.single_nat_gateway
 }
 
-# 관리자 PC/VMware에서 Tailscale을 통해 VPC 관리 자원에 접근하기 위한
+# Windows 관리자 PC에서 Tailscale을 통해 VPC 관리 자원에 접근하기 위한
 # 전용 Subnet Router. Private Subnet에 배치하고 SSM으로만 관리한다.
 module "tailscale" {
   count  = var.enable_tailscale_router ? 1 : 0
@@ -33,6 +33,8 @@ module "tailscale" {
   private_subnet_id             = module.network.private_subnet_ids[0]
   instance_type                 = var.tailscale_instance_type
   eks_cluster_security_group_id = module.eks.cluster_security_group_id
+  tailscale_oauth_secret_arn    = var.tailscale_oauth_secret_arn
+  aws_region                    = var.aws_region
 
   # NAT Gateway/Route Table까지 모두 준비된 뒤 첫 부팅 설치를 실행한다.
   depends_on = [module.network]

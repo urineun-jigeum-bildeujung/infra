@@ -45,7 +45,7 @@ eks_cluster_version = "1.35"
 #   1단계: public + private, cidrs=0.0.0.0/0        ← 현재
 #   2단계: public + private, cidrs=[관리자 IP 목록]
 #   최종:  private only, Tailscale 로만 접근
-eks_endpoint_public_access  = true
+eks_endpoint_public_access  = false
 eks_endpoint_private_access = true
 eks_public_access_cidrs     = ["0.0.0.0/0"]
 

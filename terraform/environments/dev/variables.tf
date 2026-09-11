@@ -74,6 +74,16 @@ variable "tailscale_instance_type" {
   }
 }
 
+variable "tailscale_oauth_secret_arn" {
+  description = "Tailscale Router 자동 인증용 Secrets Manager Secret ARN"
+  type        = string
+
+  validation {
+    condition     = can(regex("^arn:[^:]+:secretsmanager:[^:]+:[0-9]{12}:secret:[^*]+$", var.tailscale_oauth_secret_arn))
+    error_message = "tailscale_oauth_secret_arn은 와일드카드가 없는 AWS Secrets Manager Secret ARN이어야 합니다."
+  }
+}
+
 # =============================================================================
 # EKS
 # =============================================================================

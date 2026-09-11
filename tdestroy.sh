@@ -1,120 +1,91 @@
 #!/usr/bin/env bash
-# Dev 환경 Terraform 리소스 삭제 (프로젝트 루트에서 실행, --auto-approve)
-#
-# ⚠️ 확인 프롬프트 없이 즉시 destroy 되므로 매우 신중히 실행할 것.
-#    실행 전 반드시 어느 계정 / 어느 리전인지 확인한다.
-#
-# 이 스크립트는 오직 terraform/environments/dev 만 대상으로 한다.
-# Bootstrap 스택, Route53 Hosted Zone, DEV 애플리케이션 S3 모듈은 삭제 대상에서 제외한다.
-# → DNS 위임과 tfstate / static / product-images / uploads / db-backups Bucket 은 그대로 유지된다.
-# Terraform의 -target은 평상시 apply가 아닌, 영구 데이터 스토리지를 제외한
-# DEV 인프라 정리 용도로만 제한해서 사용한다.
-#
-# 사용:
-#   ./tdestroy.sh
+# Route53/ACM/S3/Bootstrap/OAuth Secret을 보존하고 Terraform 관리 DEV 인프라를 삭제한다.
+# Kubernetes 리소스는 cleanup-k8s.sh에서 별도로 정리한다.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TERRAFORM_DIR="${SCRIPT_DIR}/terraform/environments/dev"
+EXPECTED_AWS_ACCOUNT_ID="297165773875"
 
-TEMP_KUBECONFIG=""
+require_command() {
+  local command_name="$1"
 
-cleanup_temp_kubeconfig() {
-  if [[ -n "${TEMP_KUBECONFIG}" && -f "${TEMP_KUBECONFIG}" ]]; then
-    rm -f "${TEMP_KUBECONFIG}"
-  fi
-}
-
-cleanup_kubernetes_load_balancers() {
-  local cluster_name
-  local aws_region
-  local load_balancer_services
-  local alb_ingresses
-  local service_ref
-  local ingress_ref
-  local namespace
-  local service_name
-  local ingress_name
-
-  cluster_name="$(terraform output -raw eks_cluster_name 2>/dev/null || true)"
-  aws_region="$(terraform output -raw aws_region 2>/dev/null || true)"
-
-  if [[ -z "${cluster_name}" || -z "${aws_region}" ]]; then
-    echo "[tdestroy] 활성 EKS output이 없어 Kubernetes LoadBalancer 사전 정리를 건너뜁니다."
-    return
-  fi
-
-  if ! aws eks describe-cluster --name "${cluster_name}" --region "${aws_region}" >/dev/null 2>&1; then
-    echo "[tdestroy] EKS Cluster가 없어 Kubernetes LoadBalancer 사전 정리를 건너뜁니다."
-    return
-  fi
-
-  if ! command -v kubectl >/dev/null 2>&1; then
-    echo "[tdestroy] kubectl이 필요합니다. EKS의 LoadBalancer Service를 먼저 정리할 수 없습니다."
+  if ! command -v "${command_name}" >/dev/null 2>&1; then
+    echo "[tdestroy] ${command_name} 명령이 필요합니다." >&2
     exit 1
   fi
-
-  TEMP_KUBECONFIG="$(mktemp /tmp/petflow-destroy-kubeconfig.XXXXXX)"
-  aws eks update-kubeconfig --name "${cluster_name}" --region "${aws_region}" --kubeconfig "${TEMP_KUBECONFIG}" >/dev/null
-
-  load_balancer_services="$(kubectl --kubeconfig "${TEMP_KUBECONFIG}" get services --all-namespaces \
-    -o jsonpath='{range .items[?(@.spec.type=="LoadBalancer")]}{.metadata.namespace}{"/"}{.metadata.name}{"\n"}{end}')"
-  alb_ingresses="$(kubectl --kubeconfig "${TEMP_KUBECONFIG}" get ingresses --all-namespaces \
-    -o jsonpath='{range .items[?(@.spec.ingressClassName=="alb")]}{.metadata.namespace}{"/"}{.metadata.name}{"\n"}{end}')"
-
-  if [[ -z "${load_balancer_services}" && -z "${alb_ingresses}" ]]; then
-    echo "[tdestroy] 삭제할 Kubernetes LoadBalancer Service/ALB Ingress가 없습니다."
-    return
-  fi
-
-  # Argo CD가 삭제한 Service를 다시 생성하지 못하도록 teardown 동안 동기화를 중지한다.
-  kubectl --kubeconfig "${TEMP_KUBECONFIG}" scale statefulset argocd-application-controller \
-    --namespace argocd --replicas=0 --timeout=60s >/dev/null 2>&1 || true
-
-  while IFS= read -r ingress_ref; do
-    [[ -z "${ingress_ref}" ]] && continue
-    namespace="${ingress_ref%%/*}"
-    ingress_name="${ingress_ref#*/}"
-    echo "[tdestroy] Kubernetes ALB Ingress 삭제: ${namespace}/${ingress_name}"
-    kubectl --kubeconfig "${TEMP_KUBECONFIG}" delete ingress "${ingress_name}" \
-      --namespace "${namespace}" --wait=true --timeout=10m
-  done <<< "${alb_ingresses}"
-
-  while IFS= read -r service_ref; do
-    [[ -z "${service_ref}" ]] && continue
-    namespace="${service_ref%%/*}"
-    service_name="${service_ref#*/}"
-    echo "[tdestroy] Kubernetes LoadBalancer Service 삭제: ${namespace}/${service_name}"
-    kubectl --kubeconfig "${TEMP_KUBECONFIG}" delete service "${service_name}" \
-      --namespace "${namespace}" --wait=true --timeout=5m
-  done <<< "${load_balancer_services}"
 }
 
-trap cleanup_temp_kubeconfig EXIT
+echo "======================================"
+echo " Terraform Destroy"
+echo "======================================"
 
-cd "${TERRAFORM_DIR}"
+require_command aws
+require_command terraform
 
-if ! aws sts get-caller-identity >/dev/null 2>&1; then
-  echo "[tdestroy] AWS 인증 정보를 확인해주세요."
+if [[ ! -d "${TERRAFORM_DIR}" ]]; then
+  echo "[tdestroy] Terraform 디렉터리를 찾을 수 없습니다: ${TERRAFORM_DIR}" >&2
   exit 1
 fi
 
-CALLER_INFO="$(aws sts get-caller-identity --output text --query 'Account')"
-echo "[tdestroy] 대상 AWS Account: ${CALLER_INFO}"
+if ! aws sts get-caller-identity >/dev/null 2>&1; then
+  echo "[tdestroy] AWS 인증 정보를 확인해주세요." >&2
+  exit 1
+fi
+
+caller_account="$(aws sts get-caller-identity --query Account --output text)"
+if [[ "${caller_account}" != "${EXPECTED_AWS_ACCOUNT_ID}" ]]; then
+  echo "[tdestroy] 잘못된 AWS Account입니다: ${caller_account}" >&2
+  echo "[tdestroy] 예상 Account: ${EXPECTED_AWS_ACCOUNT_ID}" >&2
+  exit 1
+fi
+
+echo "[tdestroy] 대상 AWS Account: ${caller_account}"
 echo "[tdestroy] 대상 스택       : terraform/environments/dev"
-echo "[tdestroy] 보존 대상        : Route53 Hosted Zone, S3 (tfstate/static/product-images/uploads/db-backups)"
-echo "[tdestroy] 3초 후 destroy 를 시작합니다. 취소하려면 지금 Ctrl+C 를 누르세요."
-sleep 3
-cleanup_kubernetes_load_balancers
+echo "[tdestroy] 보존 대상        : Bootstrap, Route53/ACM, S3 4개, Tailscale OAuth Secret"
 
-terraform destroy --auto-approve \
-  -target=module.tailscale \
-  -target=module.workload_iam \
-  -target=module.platform_iam \
-  -target=module.eks \
-  -target=module.ecr \
-  -target=module.iam \
+cd "${TERRAFORM_DIR}"
+
+if [[ ! -f backend.hcl ]]; then
+  echo "[tdestroy] backend.hcl 파일이 없습니다." >&2
+  exit 1
+fi
+
+echo "[1/2] Terraform 초기화"
+terraform init -backend-config=backend.hcl -input=false
+
+# tdestroy.sh를 단독 실행하더라도 Kubernetes Controller가 만든 외부 LB를
+# 남긴 채 VPC 삭제를 시작하지 않도록 AWS API에서 한 번 더 확인한다.
+vpc_id="$(terraform output -raw vpc_id 2>/dev/null || true)"
+aws_region="$(terraform output -raw aws_region 2>/dev/null || true)"
+
+if [[ -n "${vpc_id}" && -n "${aws_region}" ]]; then
+  v2_load_balancer_count="$(aws elbv2 describe-load-balancers --region "${aws_region}" --query "length(LoadBalancers[?VpcId=='${vpc_id}'])" --output text)"
+  classic_load_balancer_count="$(aws elb describe-load-balancers --region "${aws_region}" --query "length(LoadBalancerDescriptions[?VPCId=='${vpc_id}'])" --output text)"
+
+  if ((v2_load_balancer_count > 0 || classic_load_balancer_count > 0)); then
+    echo "[tdestroy] DEV VPC에 외부 Load Balancer가 남아 있어 Destroy를 중단합니다." >&2
+    echo "[tdestroy] cleanup-k8s.sh를 먼저 실행해주세요." >&2
+    echo "[tdestroy] ALB/NLB: ${v2_load_balancer_count}, Classic ELB: ${classic_load_balancer_count}" >&2
+    exit 1
+  fi
+fi
+
+destroy_targets=(
+  -target=module.tailscale
+  -target=module.workload_iam
+  -target=module.platform_iam
+  -target=module.eks
+  -target=module.ecr
+  -target=module.iam
   -target=module.network
+)
 
-echo "[tdestroy] Route53 Hosted Zone과 애플리케이션 S3 Bucket 4개는 삭제 대상에서 제외했습니다."
+echo "[2/2] Terraform Destroy 실행"
+terraform destroy --auto-approve -input=false "${destroy_targets[@]}"
+
+echo "======================================"
+echo " Terraform Destroy Completed"
+echo "======================================"
+echo "[tdestroy] Bootstrap, Route53/ACM, S3 4개와 Tailscale OAuth Secret은 보존했습니다."

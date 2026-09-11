@@ -71,10 +71,12 @@ infra/
 ├─ tinit.sh                  # 프로젝트 루트에서 실행하는 편의 스크립트 (dev 대상)
 ├─ tplan.sh
 ├─ tapply.sh                 # --auto-approve
-└─ tdestroy.sh               # S3 보존, 나머지 DEV 인프라 삭제
+├─ cleanup-k8s.sh            # Private EKS에서 Ingress/LoadBalancer 사전 정리
+├─ tdestroy.sh               # 보존 리소스를 제외한 Terraform DEV 인프라 삭제
+└─ alldestroy.sh             # cleanup-k8s.sh → tdestroy.sh 통합 실행
 ```
 
-`bootstrap/` 과 `environments/dev/` 는 **생명주기가 다르다**. `./tdestroy.sh`는 Bootstrap, Route53 Hosted Zone, 모든 S3 Bucket을 보존하고 나머지 DEV 인프라만 삭제한다. 도메인 이전은 [docs/route53-acm.md](docs/route53-acm.md), 생명주기 원칙은 [docs/architecture.md](docs/architecture.md) 참고.
+`bootstrap/` 과 `environments/dev/` 는 **생명주기가 다르다**. `./tdestroy.sh`는 Bootstrap, Route53/ACM, 모든 S3 Bucket과 Tailscale OAuth Secret을 보존하고 나머지 DEV 인프라만 삭제한다. 도메인 이전은 [docs/route53-acm.md](docs/route53-acm.md), 생명주기 원칙은 [docs/architecture.md](docs/architecture.md) 참고.
 
 향후 확장 예정:
 
@@ -134,7 +136,7 @@ terraform version   # 1.10.x 이상 확인
 aws --version
 ```
 
-`tdestroy.sh`는 EKS 삭제 전에 LoadBalancer Service를 정리하므로 `kubectl`도 설치되어 있어야 한다.
+`cleanup-k8s.sh`와 `alldestroy.sh`를 실행하는 환경에는 `kubectl`이 설치되어 있고 Tailscale을 통해 EKS Private API에 접근할 수 있어야 한다.
 
 
 macOS 는 `brew install terraform awscli`, Windows 는 `choco install terraform awscli` 또는 WSL Ubuntu 사용 권장.
@@ -205,8 +207,8 @@ git checkout -b feat/<작업이름>
 ./tplan.sh      # 변경 계획 검토
 ./tapply.sh     # 실제 반영 (--auto-approve 포함)
 
-# 테스트 종료 후 정리
-./tdestroy.sh   # S3는 보존하고 나머지 DEV 인프라 삭제
+# 테스트 종료 후 전체 정리 (Tailscale/EKS 접근 가능한 환경)
+./alldestroy.sh
 
 git push -u origin feat/<작업이름>
 gh pr create --base dev
@@ -221,7 +223,11 @@ State locking (`use_lockfile = true`) 덕분에 팀원 A 가 apply 중이면 B �
 | `tinit.sh` | 프로젝트 루트 | 필수 도구 / 인증 / `backend.hcl` 확인 후 `terraform init -backend-config=backend.hcl` |
 | `tplan.sh` | 프로젝트 루트 | AWS 인증 확인 → `terraform fmt` + `validate` + `plan` |
 | `tapply.sh` | 프로젝트 루트 | AWS 인증 확인 → `fmt` + `validate` + `apply --auto-approve` |
-| `tdestroy.sh` | 프로젝트 루트 | AWS 인증 확인 → Kubernetes ALB Ingress/LoadBalancer Service 정리 → Route53/S3를 제외한 DEV 모듈만 삭제 |
+| `cleanup-k8s.sh` | 프로젝트 루트 | 대상 계정/EKS API 확인 → Argo CD 중지 → Ingress/LoadBalancer Service 삭제 → AWS LB 소멸 확인 |
+| `tdestroy.sh` | 프로젝트 루트 | 대상 계정/AWS LB 부재 확인 → Route53/ACM/S3를 제외한 DEV Terraform 모듈 삭제 |
+| `alldestroy.sh` | 프로젝트 루트 | `cleanup-k8s.sh` 성공 후에만 `tdestroy.sh` 실행 |
+
+`alldestroy.sh`는 별도 확인 입력 없이 즉시 실행된다. Kubernetes 정리에 실패하면 `set -e`에 의해 Terraform Destroy는 실행되지 않는다. 현재 VMware는 EKS Private API에 접근할 수 없으므로, 통합 삭제는 Terraform/AWS CLI가 준비된 Windows WSL과 Tailscale ON 상태에서 실행한다. 역할을 나눠 실행할 때는 Windows에서 `./cleanup-k8s.sh`를 먼저 완료하고 VMware에서 `./tdestroy.sh`를 실행한다.
 
 모두 `terraform/environments/dev` 를 대상으로 한다. Bootstrap 스택(`state-backend`, `terraform-access`)은 이 스크립트로 조작되지 않는다.
 Bootstrap 스택은 담당자가 해당 디렉터리로 직접 이동해서 `terraform` 명령을 실행한다 ([docs/architecture.md](docs/architecture.md) §5 참고).

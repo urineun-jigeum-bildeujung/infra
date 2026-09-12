@@ -7,6 +7,12 @@
 서비스 운영에 필요한 AWS 인프라를 구성하고,
 Terraform을 활용하여 Infrastructure as Code(IaC) 방식으로 관리합니다.
 
+2026-09-12 기준 DEV 환경은 AWS Account `297165773875`, Region
+`ap-northeast-2`에서 운영한다. VPC `10.0.0.0/20`, Private-only EKS 1.35,
+`m7i-flex.large` Managed Node 3대와 Tailscale Subnet Router가 배포되어 있다.
+상세 구성과 운영 기준은 [Architecture](docs/architecture.md),
+[Capacity Plan](docs/capacity-plan.md), [Operations](docs/operations.md)를 따른다.
+
 ## Tech Stack
 
 * AWS
@@ -38,11 +44,14 @@ infra/
 │
 ├─ docs/
 │  ├─ architecture.md
+│  ├─ capacity-plan.md        # Worker Node Capacity / 확장 / DEV 비용 기준
 │  ├─ dev-infra-validation.md # DEV 플랫폼 기반 검증 결과
 │  ├─ jenkins-kaniko-ecr.md   # Jenkins Kaniko / ECR 연동 계약
+│  ├─ operations.md           # Apply / Destroy / 장애 확인 절차
 │  ├─ platform-integration.md  # Karpenter / ALB Controller GitOps 연동 계약
 │  ├─ route53-acm.md           # leechs.shop DNS 이전 / ACM 단계별 절차
-│  └─ tailscale-access.md      # Tailscale Router 구성 / 인증 / Private EKS 검증
+│  ├─ tailscale-access.md      # Tailscale Router 구성 / 인증 / Private EKS 검증
+│  └─ terraform-outputs.md     # 팀별 Terraform Output 사용 안내
 │
 ├─ terraform/
 │  ├─ bootstrap/             # DEV destroy 대상 아님 — 최초 1회 생성 후 유지
@@ -94,7 +103,11 @@ terraform/environments/
 * Dev 환경은 반복적인 `apply` / `destroy` 를 허용한다.
 * 민감 정보(tfstate, tfvars, backend.hcl, AWS Key, kubeconfig 등)는 Git 에 커밋하지 않는다.
 * 리포지토리 내 사람이 읽는 설명은 모두 한글로 작성한다.
-* 현재 단계에서는 VPC, EKS 등 실제 리소스 코드를 작성하지 않으며, 이후 기능별 브랜치에서 추가한다.
+* Infra 팀은 AWS/Terraform/VPC/EKS/IAM/ECR/S3/Route53/ACM/Tailscale을 관리한다.
+* CloudNative 팀은 Argo CD, Jenkins 플랫폼, CNPG, Redis, Kafka, Observability,
+  KEDA와 애플리케이션 Helm 리소스를 관리한다.
+* 플랫폼 배포 이후 AWS 권한, Storage, Load Balancer, DNS/HTTPS 및 Karpenter 연동은
+  두 팀이 함께 검증한다.
 
 ## 사전 준비 (모든 팀원 공통)
 
@@ -227,7 +240,7 @@ State locking (`use_lockfile = true`) 덕분에 팀원 A 가 apply 중이면 B �
 | `tdestroy.sh` | 프로젝트 루트 | 대상 계정/AWS LB 부재 확인 → Route53/ACM/S3를 제외한 DEV Terraform 모듈 삭제 |
 | `alldestroy.sh` | 프로젝트 루트 | `cleanup-k8s.sh` 성공 후에만 `tdestroy.sh` 실행 |
 
-`alldestroy.sh`는 별도 확인 입력 없이 즉시 실행된다. Kubernetes 정리에 실패하면 `set -e`에 의해 Terraform Destroy는 실행되지 않는다. 현재 VMware는 EKS Private API에 접근할 수 없으므로, 통합 삭제는 Terraform/AWS CLI가 준비된 Windows WSL과 Tailscale ON 상태에서 실행한다. 역할을 나눠 실행할 때는 Windows에서 `./cleanup-k8s.sh`를 먼저 완료하고 VMware에서 `./tdestroy.sh`를 실행한다.
+`alldestroy.sh`는 별도 확인 입력 없이 즉시 실행된다. Kubernetes 정리에 실패하면 `set -e`에 의해 Terraform Destroy는 실행되지 않는다. VMware 운영 기준은 Tailscale subnet route를 받지 않는 Terraform/Git 전용 환경이다. 통합 삭제는 Terraform/AWS CLI가 준비된 Windows WSL과 Tailscale ON 상태에서 실행한다. 역할을 나눠 실행할 때는 Windows에서 `./cleanup-k8s.sh`를 먼저 완료하고 VMware에서 `./tdestroy.sh`를 실행한다.
 
 모두 `terraform/environments/dev` 를 대상으로 한다. Bootstrap 스택(`state-backend`, `terraform-access`)은 이 스크립트로 조작되지 않는다.
 Bootstrap 스택은 담당자가 해당 디렉터리로 직접 이동해서 `terraform` 명령을 실행한다 ([docs/architecture.md](docs/architecture.md) §5 참고).
@@ -238,3 +251,6 @@ Bootstrap 스택은 담당자가 해당 디렉터리로 직접 이동해서 `ter
 - [docs/route53-acm.md](docs/route53-acm.md) — leechs.shop Route53 이전, ACM 및 ALB 연결 단계
 - [docs/alb-https-test.md](docs/alb-https-test.md) — AWS Load Balancer Controller 설치 및 test.leechs.shop HTTPS 통합 검증
 - [docs/tailscale-access.md](docs/tailscale-access.md) — AWS 전용 Subnet Router 적용, Tailnet 인증, Private EKS 접근 검증
+- [docs/terraform-outputs.md](docs/terraform-outputs.md) — Infra/CloudNative/Backend/Web 팀별 Output 사용법
+- [docs/capacity-plan.md](docs/capacity-plan.md) — Worker Node 선정 근거, 확장 기준, DEV 비용 원칙
+- [docs/operations.md](docs/operations.md) — Apply/Destroy, 재생성, 장애 확인과 팀 간 인계 절차

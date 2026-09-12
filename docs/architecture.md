@@ -11,6 +11,46 @@
 - 따라서 이 리포지토리에서는 **DEV 환경만 구성**한다.
 - `prod` 환경은 DEV 환경이 안정화되고 실제 운영이 필요해지는 시점에 별도로 추가한다.
 
+### 2026-09-12 DEV 배포 기준
+
+| 항목 | 현재 값 |
+|---|---|
+| AWS Account / Region | `297165773875` / `ap-northeast-2` |
+| VPC | `10.0.0.0/20` |
+| Subnet | Public 2개, Private 2개 |
+| NAT / VPC Endpoint | NAT Gateway 1개, S3 Gateway Endpoint |
+| EKS | `petflow-eks`, Kubernetes 1.35 |
+| EKS Endpoint | Public OFF, Private ON |
+| Managed Node Group | `petflow-node-group`, `m7i-flex.large` |
+| Node Scaling | min 2 / desired 3 / max 5 |
+| 기본 Capacity | 6 vCPU / 24 GiB |
+| 최대 Capacity | 10 vCPU / 40 GiB |
+
+```text
+Windows 관리자 PC
+  → Tailscale
+  → Private Subnet Router EC2
+  → VPC 10.0.0.0/20
+  → EKS Private API / Private 관리 서비스
+```
+
+Router는 Public IP와 inbound Security Group 규칙 없이 Private Subnet에 배치하며
+SSM으로 관리한다. EC2/Private/Tailscale IP는 재생성 시 바뀌므로
+[Terraform Output](terraform-outputs.md)과 `tailscale status`로 조회한다.
+
+### 팀 역할 경계
+
+| Infra | CloudNative |
+|---|---|
+| AWS Account, Terraform, VPC/Subnet/NAT | Argo CD와 GitOps |
+| EKS Cluster/Managed Node Group | Jenkins Platform/Application Helm |
+| IAM, EKS Pod Identity, ECR/S3 | CNPG, Redis, Kafka |
+| Route53/ACM, Tailscale | Prometheus/Grafana/Loki/Tempo/KEDA |
+| AWS Resource Capacity와 비용 기준 | Kubernetes Platform Resource 운영 |
+
+Infra 팀은 플랫폼 배포 후 Pod Identity, EBS/S3, ECR Push, ALB/Target Group,
+Route53/ACM, Karpenter Node Provisioning을 CloudNative 팀과 함께 검증한다.
+
 ---
 
 ## 2. 코드 구성 원칙
@@ -92,9 +132,11 @@ IAM 과 State Backend 를 **Bootstrap 영역** 으로 분리해서 관리한다.
   terraform/environments/dev/  + terraform/modules/*
   ├─ VPC, Subnet, NAT
   ├─ EKS Cluster / Node / OIDC
-  ├─ 애플리케이션용 IAM Role (EKS Cluster / Node / ALB / Karpenter / App)
+  ├─ IAM / Pod Identity (EKS, Platform, Workload)
   ├─ ECR
-  └─ 애플리케이션용 S3
+  ├─ 애플리케이션용 S3
+  ├─ Route53 / ACM
+  └─ Tailscale Subnet Router
 ```
 
 ### IAM 관리 위치와 destroy 여부
@@ -106,9 +148,11 @@ IAM 과 State Backend 를 **Bootstrap 영역** 으로 분리해서 관리한다.
 | State S3 / `.tflock` 접근 Policy | `bootstrap/terraform-access` | 유지 |
 | EKS Cluster Role | `modules/iam` | 삭제 가능 |
 | EKS Worker Node Role | `modules/iam` | 삭제 가능 |
-| AWS Load Balancer Controller Role | `modules/iam` | 삭제 가능 |
-| Karpenter Role | `modules/iam` | 삭제 가능 |
-| 애플리케이션 IAM Role | `modules/iam` | 삭제 가능 |
+| AWS Load Balancer Controller Role | `modules/platform-iam` | 삭제 가능 |
+| Karpenter Controller/Node Role | `modules/platform-iam` | 삭제 가능 |
+| Jenkins Kaniko Role | `modules/platform-iam` | 삭제 가능 |
+| CNPG Backup Role | `modules/workload-iam` | 삭제 가능 |
+| Tailscale Router Role | `modules/tailscale` | 삭제 가능 |
 
 ### 잘못된 구조와 권장 구조
 
@@ -247,9 +291,13 @@ outputs.tf    - 다른 모듈 / Environment 에서 사용할 값 반환
 |---|---|
 | `network` | VPC, Public / Private Subnet, IGW, NAT Gateway, EIP, Route Table |
 | `eks` | EKS Cluster, Managed Node Group, OIDC Provider, Cluster Access |
-| `iam` | EKS Cluster Role, Node Role, ALB Controller Role, Karpenter Role, 애플리케이션 Role (DEV 삭제 가능 IAM 만) |
+| `iam` | EKS Cluster Role, Managed Node Role |
+| `platform-iam` | ALB Controller, Karpenter, Jenkins Kaniko IAM/Pod Identity |
+| `workload-iam` | CNPG S3 Backup IAM/Pod Identity |
 | `ecr` | Docker Image 저장용 ECR Repository (MSA 서비스 단위) |
 | `s3` | 애플리케이션용 S3 Bucket (State 용 Bucket 과 반드시 분리) |
+| `route53-acm` | Public Hosted Zone, ACM 인증서와 DNS 검증 |
+| `tailscale` | Private Subnet Router EC2, SSM/IAM/보안 그룹 |
 
 > Terraform 실행용 개발자 Role / GitHub Actions OIDC Role / State 접근 Policy 는
 > `modules/iam` 이 아니라 `bootstrap/terraform-access` 스택에서 관리한다.
@@ -321,19 +369,20 @@ destroy
 apply (재생성)
 ```
 
-프로젝트 루트의 `./tdestroy.sh`는 `module.s3`를 삭제 대상에서 제외한다.
-따라서 State 저장용 `petflow-tfstate`뿐 아니라 DEV의 `static`, `product-images`,
-`uploads` Bucket도 유지되고, Network/IAM/EKS/Platform IAM/ECR만 삭제된다.
-각 S3 Bucket에는 `prevent_destroy = true`도 적용하여 일반 destroy 실수를 이중으로 차단한다.
-`tdestroy.sh`는 EKS보다 먼저 모든 `type=LoadBalancer` Service를 삭제하여 ELB, ENI,
-Security Group이 VPC 삭제를 막지 않도록 한다.
+Kubernetes가 만든 AWS Load Balancer는 Terraform State 밖에 있으므로 EKS/VPC보다 먼저
+정리해야 한다. `./alldestroy.sh`는 `cleanup-k8s.sh` 성공 후에만 `tdestroy.sh`를 실행한다.
+Kubernetes API에 접근할 수 없는 경우 Terraform Destroy를 시작하지 않는다.
+
+`tdestroy.sh`는 Network/EKS/IAM/Platform IAM/ECR/Tailscale을 삭제하고 Bootstrap,
+Route53/ACM, Tailscale OAuth Secret과 DEV S3 4개(`static`, `product-images`,
+`uploads`, `db-backups`)를 보존한다. 상세 절차는 [Operations](operations.md)를 따른다.
 
 ---
 
-## 9. AWS 계정 발급 전 작업 원칙
+## 9. AWS API를 사용할 수 없는 환경의 작업 원칙
 
-프로젝트 초기에는 AWS 계정이 아직 발급되지 않아 실제 `terraform plan` / `terraform apply` 를 통한
-리소스 생성·검증까지는 수행할 수 없다. 이 경우 다음 원칙으로 진행한다.
+현재 DEV AWS Account는 발급되어 실제 배포 중이다. 다만 권한이나 네트워크 문제로 AWS API를
+사용할 수 없는 개발 환경에서는 다음 원칙으로 정적 검증까지만 진행한다.
 
 **핵심 원칙: 정적 검증까지는 지금 완료하고, AWS API 가 필요한 검증만 TODO 로 분리한다.**
 

@@ -38,6 +38,27 @@ Router는 Public IP와 inbound Security Group 규칙 없이 Private Subnet에 �
 SSM으로 관리한다. EC2/Private/Tailscale IP는 재생성 시 바뀌므로
 [Terraform Output](terraform-outputs.md)과 `tailscale status`로 조회한다.
 
+Redis와 Kafka는 AWS 관리형 서비스가 아니라 EKS 내부 GitOps Workload다.
+
+```text
+Backend Pod
+  ├─ Redis ClusterIP :6379
+  └─ Kafka Bootstrap :9092
+       ↓
+Redis/Kafka PVC
+       ↓
+gp3 StorageClass
+       ↓
+EBS CSI Driver
+       ↓
+AWS EBS
+```
+
+6379와 9092는 Cluster 내부 Service Port이며 AWS Security Group으로 외부에 개방하지
+않는다. Redis/Kafka용 Terraform Module, IAM Role, Subnet, EC2, ElastiCache 또는 MSK를
+추가하지 않는다. Kubernetes가 동적으로 만든 PV/EBS는 Terraform State 밖에 있으므로
+DEV 전체 삭제 전에 `cleanup-k8s.sh`가 별도로 정리한다.
+
 ### 팀 역할 경계
 
 | Infra | CloudNative |
@@ -369,9 +390,14 @@ destroy
 apply (재생성)
 ```
 
-Kubernetes가 만든 AWS Load Balancer는 Terraform State 밖에 있으므로 EKS/VPC보다 먼저
-정리해야 한다. `./alldestroy.sh`는 `cleanup-k8s.sh` 성공 후에만 `tdestroy.sh`를 실행한다.
-Kubernetes API에 접근할 수 없는 경우 Terraform Destroy를 시작하지 않는다.
+Kubernetes가 만든 AWS Load Balancer와 EBS Volume은 Terraform State 밖에 있으므로
+EKS/VPC보다 먼저 정리해야 한다. `cleanup-k8s.sh`는 Argo CD를 중지하고 Load Balancer를
+제거한 뒤 Redis/Kafka PVC에서 PV와 EBS Volume ID를 추적한다. Workload/PVC 삭제 후 해당
+PV와 EBS가 실제로 사라진 경우에만 성공한다.
+
+`./alldestroy.sh`는 이 Cleanup이 성공한 뒤에만 `tdestroy.sh`를 실행한다. Kubernetes
+API 접근, PVC/PV 삭제 또는 EBS 소멸 확인이 실패하면 Terraform Destroy를 시작하지 않는다.
+스크립트는 AWS CLI `delete-volume`로 고아 Volume을 자동 강제 삭제하지 않는다.
 
 `tdestroy.sh`는 Network/EKS/IAM/Platform IAM/ECR/Tailscale을 삭제하고 Bootstrap,
 Route53/ACM, Tailscale OAuth Secret과 DEV S3 4개(`static`, `product-images`,

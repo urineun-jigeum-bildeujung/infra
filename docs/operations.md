@@ -114,6 +114,44 @@ AWS/EKS 경계를 함께 검증한다.
 7. Pending 부하에서 Karpenter가 Node를 만들고 회수한다.
 8. Monitoring에서 Node/Pod 사용률을 확인할 수 있다.
 
+## Redis / Kafka 배포 후 검증
+
+GitOps PR #23이 병합되고 Argo CD가 Sync한 후 Tailscale이 연결된 Windows/WSL에서
+확인한다.
+
+```bash
+kubectl --context petflow-dev get pods,svc,pvc -n redis
+kubectl --context petflow-dev get events -n redis --sort-by=.lastTimestamp
+
+kubectl --context petflow-dev get pods,svc,pvc -n kafka
+kubectl --context petflow-dev get kafka,kafkanodepool,kafkatopic -n kafka
+kubectl --context petflow-dev get events -n kafka --sort-by=.lastTimestamp
+kubectl --context petflow-dev get storageclass gp3
+```
+
+Redis 정상 기준은 Pod `Running`, PVC `Bound`, ClusterIP Service 6379 생성이다.
+
+```bash
+kubectl --context petflow-dev run redis-test --rm -i --restart=Never \
+  --namespace redis --image=redis:7-alpine -- \
+  redis-cli -h redis-master.redis.svc.cluster.local -p 6379 ping
+```
+
+정상 응답은 `PONG`이다. Kafka 정상 기준은 Strimzi Operator/Broker `Running`,
+Kafka/KafkaNodePool `Ready`, PVC `Bound`, KafkaTopic 7개 `Ready`와
+`pet-subscription-kafka-kafka-bootstrap.kafka.svc:9092` Service 생성이다.
+
+```bash
+kubectl --context petflow-dev top nodes
+kubectl --context petflow-dev top pods -A
+kubectl --context petflow-dev get pods -A --field-selector=status.phase=Pending
+kubectl --context petflow-dev get events -A --sort-by=.lastTimestamp
+```
+
+`Insufficient cpu`, `Insufficient memory`, `FailedScheduling`, OOMKilled와 CPU
+Throttling이 반복되는지 확인한다. Metrics Server/Prometheus 배포 전에는
+`kubectl top`이 동작하지 않을 수 있다.
+
 ## Destroy
 
 통합 삭제는 EKS Private API에 접근할 수 있고 Terraform/AWS CLI가 준비된 환경에서
@@ -130,12 +168,18 @@ cleanup-k8s.sh
   → Argo CD 동기화 중지
   → Ingress / LoadBalancer Service 삭제
   → AWS Load Balancer 소멸 확인
+  → Redis / Kafka PVC에서 PV와 EBS Volume ID 추적
+  → Strimzi Resource와 Redis / Kafka Workload 삭제
+  → Redis / Kafka PVC 삭제
+  → 추적한 PV와 EBS Volume 소멸 확인
 tdestroy.sh
   → Terraform 관리 DEV 모듈 삭제
 ```
 
-Kubernetes Cleanup이 실패하면 Terraform Destroy는 실행되지 않는다. 역할을 분리할 때는
-Windows/WSL에서 Cleanup을 완료하고 VMware에서 Terraform Destroy를 실행한다.
+Namespace나 PVC가 이미 없으면 성공으로 처리한다. 반대로 PVC 삭제, PV 삭제 또는 추적한
+EBS Volume 소멸 확인이 실패하면 Cleanup은 오류로 종료되고 Terraform Destroy는 실행되지
+않는다. 역할을 분리할 때는 Windows/WSL에서 Cleanup을 완료하고 VMware에서 Terraform
+Destroy를 실행한다.
 
 ```bash
 # Windows/WSL + Tailscale ON
@@ -151,6 +195,36 @@ AWS_PROFILE=ujibil2 ./tdestroy.sh
 - Route53 Hosted Zone와 ACM 인증서
 - `static`, `product-images`, `uploads`, `db-backups` S3 Bucket
 - Tailscale OAuth Secret
+
+### PV / 고아 EBS 확인
+
+삭제 전후 reclaim policy와 Volume 상태를 확인한다.
+
+```bash
+kubectl --context petflow-dev get storageclass
+kubectl --context petflow-dev get pv
+
+AWS_PROFILE=ujibil2 aws ec2 describe-volumes \
+  --region ap-northeast-2 \
+  --volume-ids <cleanup-k8s.sh가 출력한-vol-id> \
+  --query 'Volumes[0].{State:State,Attachments:Attachments,Tags:Tags}'
+```
+
+`cleanup-k8s.sh`는 삭제 전 Redis/Kafka PVC가 참조한 PV의
+`spec.csi.volumeHandle`만 기록한다. 따라서 모든 `available` Volume을 광범위하게
+대상으로 삼지 않는다. StorageClass reclaim policy가 `Delete`면 PVC→PV→EBS CSI 정상
+삭제를 우선 사용한다. `Retain`, Finalizer 또는 Attachment 문제로 Volume이 남으면
+스크립트는 실패하며 AWS CLI로 자동 삭제하지 않는다.
+
+수동 삭제가 필요할 때는 다음 Tag를 현재 Cluster/PVC와 대조한다.
+
+- `kubernetes.io/created-for/pvc/namespace`
+- `kubernetes.io/created-for/pvc/name`
+- `kubernetes.io/created-for/pv/name`
+- `CSIVolumeName`
+- `ebs.csi.aws.com/cluster`
+
+Volume ID, Tag, Attachment, PV/PVC 관계를 모두 확인한 뒤 별도 승인으로 처리한다.
 
 ## 장애 확인 순서
 

@@ -22,6 +22,22 @@
 예약분 때문에 이론값보다 작으므로 운영 판단에는 `kubectl describe node`와 Metrics를
 사용한다.
 
+## Redis / Kafka 초기 Request
+
+GitOps PR #23 기준 DEV 초기값은 다음과 같다.
+
+| Workload | CPU Request / Limit | Memory Request / Limit | Storage |
+|---|---|---|---|
+| Redis standalone | 100m / 500m | 256Mi / 512Mi | gp3 8Gi |
+| Kafka broker/controller | 250m / 1 | 512Mi / 1Gi | gp3 10Gi |
+| Strimzi Operator | 250m / 1 | 512Mi / 1Gi | 없음 |
+| Request 합계(Limit 제외) | 600m | 1280Mi(약 1.25Gi) | gp3 18Gi |
+
+Redis/Kafka 기본 Request만 보면 Cluster 이론 Capacity 6 vCPU/24GiB에서 즉시 Node를
+증설할 수준은 아니다. Limit 합계는 동시에 예약되는 Capacity가 아니며 실제 사용량과
+스케줄링 가능 여부는 다른 Platform/Application Pod, Node Allocatable과 함께 판단한다.
+배포 후 `kubectl top`, Pending Event, OOMKilled와 CPU Throttling을 다시 확인한다.
+
 ## 변경 배경
 
 이전 구성은 `c7i-flex.large` 2대였다.

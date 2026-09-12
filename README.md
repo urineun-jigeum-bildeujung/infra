@@ -49,6 +49,7 @@ infra/
 │  ├─ jenkins-kaniko-ecr.md   # Jenkins Kaniko / ECR 연동 계약
 │  ├─ operations.md           # Apply / Destroy / 장애 확인 절차
 │  ├─ platform-integration.md  # Karpenter / ALB Controller GitOps 연동 계약
+│  ├─ redis-kafka-infra-notes.md # Redis/Kafka AWS 기반과 PV/EBS 생명주기
 │  ├─ route53-acm.md           # leechs.shop DNS 이전 / ACM 단계별 절차
 │  ├─ tailscale-access.md      # Tailscale Router 구성 / 인증 / Private EKS 검증
 │  └─ terraform-outputs.md     # 팀별 Terraform Output 사용 안내
@@ -80,7 +81,7 @@ infra/
 ├─ tinit.sh                  # 프로젝트 루트에서 실행하는 편의 스크립트 (dev 대상)
 ├─ tplan.sh
 ├─ tapply.sh                 # --auto-approve
-├─ cleanup-k8s.sh            # Private EKS에서 Ingress/LoadBalancer 사전 정리
+├─ cleanup-k8s.sh            # Private EKS에서 LB와 Redis/Kafka PVC/PV/EBS 사전 정리
 ├─ tdestroy.sh               # 보존 리소스를 제외한 Terraform DEV 인프라 삭제
 └─ alldestroy.sh             # cleanup-k8s.sh → tdestroy.sh 통합 실행
 ```
@@ -236,7 +237,7 @@ State locking (`use_lockfile = true`) 덕분에 팀원 A 가 apply 중이면 B �
 | `tinit.sh` | 프로젝트 루트 | 필수 도구 / 인증 / `backend.hcl` 확인 후 `terraform init -backend-config=backend.hcl` |
 | `tplan.sh` | 프로젝트 루트 | AWS 인증 확인 → `terraform fmt` + `validate` + `plan` |
 | `tapply.sh` | 프로젝트 루트 | AWS 인증 확인 → `fmt` + `validate` + `apply --auto-approve` |
-| `cleanup-k8s.sh` | 프로젝트 루트 | 대상 계정/EKS API 확인 → Argo CD 중지 → Ingress/LoadBalancer Service 삭제 → AWS LB 소멸 확인 |
+| `cleanup-k8s.sh` | 프로젝트 루트 | 대상 계정/Cluster/Region/EKS API 확인 → Argo CD 중지 → LB 삭제 → Redis/Kafka PVC·PV·EBS 소멸 확인 |
 | `tdestroy.sh` | 프로젝트 루트 | 대상 계정/AWS LB 부재 확인 → Route53/ACM/S3를 제외한 DEV Terraform 모듈 삭제 |
 | `alldestroy.sh` | 프로젝트 루트 | `cleanup-k8s.sh` 성공 후에만 `tdestroy.sh` 실행 |
 
@@ -254,3 +255,4 @@ Bootstrap 스택은 담당자가 해당 디렉터리로 직접 이동해서 `ter
 - [docs/terraform-outputs.md](docs/terraform-outputs.md) — Infra/CloudNative/Backend/Web 팀별 Output 사용법
 - [docs/capacity-plan.md](docs/capacity-plan.md) — Worker Node 선정 근거, 확장 기준, DEV 비용 원칙
 - [docs/operations.md](docs/operations.md) — Apply/Destroy, 재생성, 장애 확인과 팀 간 인계 절차
+- [docs/redis-kafka-infra-notes.md](docs/redis-kafka-infra-notes.md) — Redis/Kafka AWS 기반, 내부 Endpoint와 PV/EBS Cleanup 경계

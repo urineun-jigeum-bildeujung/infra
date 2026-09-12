@@ -36,6 +36,22 @@ sudo tailscale set --accept-routes=false
 
 VMware는 Terraform/Git/AWS CLI 작업에 사용하고, EKS Private API와 관리 서비스 접근은 Windows Tailscale 클라이언트에서 수행한다.
 
+### 현재 Router 검증 스냅샷
+
+2026-09-12 재생성 후 확인 값은 다음과 같다.
+
+| 항목 | 값 |
+|---|---|
+| EC2 | `i-00638a5488b9253bb`, running |
+| Private IP | `10.0.5.212` |
+| Tailscale IP | `100.105.208.18` |
+| Tailnet 상태 | online, `tag:petflow-router` |
+| Primary Route | `10.0.0.0/20` |
+| SSM | Online |
+
+위 ID와 IP는 운영 계약값이 아닌 검증 시점의 값이다. destroy/apply 후에는 바뀔 수 있으므로
+`terraform output`과 `tailscale status`로 다시 조회한다.
+
 ## 자동 인증 흐름
 
 ~~~text
@@ -159,12 +175,25 @@ sudo grep -Ei 'tskey-|auth-key' /var/log/cloud-init-output.log
 Windows에서 최종 검증한다.
 
 ~~~bash
+AWS_PROFILE=ujibil2 aws eks update-kubeconfig \
+  --region ap-northeast-2 \
+  --name petflow-eks \
+  --alias petflow-dev
+
 tailscale ping petflow-dev-tailscale-router
 kubectl --context petflow-dev get nodes
 kubectl --context petflow-dev get pods -A
 ~~~
 
 Tailscale을 끄면 EKS Private API 접근이 실패해야 한다.
+
+EKS를 재생성하면 API Endpoint hostname이 바뀐다. 기존 kubeconfig를 갱신하지 않으면
+k9s/kubectl에서 `no such host`와 연결 재시도가 반복될 수 있다.
+
+Router는 Public IP 없이 AWS NAT Gateway 뒤에 있으므로 Client와 direct UDP 연결을 만들지
+못하고 DERP Relay를 사용할 수 있다. 2026-09-12 현재 구성에서도 DERP 연결을 확인했다.
+이 경우 Private API 요청과 k9s 화면 갱신이 느릴 수 있다.
+`tailscale ping petflow-dev-tailscale-router` 결과에서 `direct`/`DERP`를 확인한다.
 
 ## destroy → apply 재생성 검증
 

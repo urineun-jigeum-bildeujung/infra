@@ -106,6 +106,11 @@ output "eks_cluster_version" {
   value       = module.eks.cluster_version
 }
 
+output "eks_node_group_name" {
+  description = "EKS Managed Node Group 이름. 운영 확인과 Auto Scaling 조회에 사용."
+  value       = module.eks.node_group_name
+}
+
 output "eks_cluster_security_group_id" {
   description = "Karpenter Worker Node 가 사용할 EKS Cluster Security Group ID"
   value       = module.eks.cluster_security_group_id

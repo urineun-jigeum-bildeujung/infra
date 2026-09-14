@@ -17,7 +17,9 @@ petflow-dev-tailscale-router
 AWS VPC / EKS Private API / 내부 관리 서비스
 ~~~
 
-Router EC2는 Terraform으로 생성하며, 부팅할 때 AWS Secrets Manager의 OAuth Secret을 조회해 자동으로 Tailnet에 등록한다. Secret 값은 Terraform 코드, tfvars, User Data, State에 저장하지 않는다.
+Router EC2는 Terraform으로 생성한다. 최초 등록 시에만 AWS Secrets Manager의 OAuth Secret을 조회하고, 이후 Machine Identity는 AWS SSM Parameter Store의 `/petflow/dev/tailscale/router-state`에서 복구한다. Secret과 State 값은 Terraform 코드, tfvars, User Data, Terraform State에 저장하지 않는다.
+
+기존 Router Identity를 SSM으로 옮기는 최초 1회 작업은 [Tailscale Router SSM State 운영 Runbook](./tailscale-persistent-state.md)을 따른다.
 
 ## 현재 운영 기준
 
@@ -38,16 +40,20 @@ VMware는 Terraform/Git/AWS CLI 작업에 사용하고, EKS Private API와 관�
 
 ### 현재 Router 검증 스냅샷
 
-2026-09-12 재생성 후 확인 값은 다음과 같다.
+2026-09-14 SSM Persistent State 적용 및 Router replacement 후 확인 값은 다음과 같다.
 
 | 항목 | 값 |
 |---|---|
-| EC2 | `i-00638a5488b9253bb`, running |
-| Private IP | `10.0.5.212` |
-| Tailscale IP | `100.105.208.18` |
-| Tailnet 상태 | online, `tag:petflow-router` |
+| EC2 | `i-03f9ad3b80b018373`, running |
+| Private IP | `10.0.7.140` |
+| Tailscale Device | `petflow-dev-tailscale-router-3` |
+| Tailscale IP | `100.69.91.62` |
+| Tailnet 상태 | online, 기존 Identity 유지 |
 | Primary Route | `10.0.0.0/20` |
 | SSM | Online |
+| State Backend | `/petflow/dev/tailscale/router-state`, `SecureString` Version 1 |
+| EKS Private API | `/readyz` = `ok` |
+| Terraform Plan | `No changes` |
 
 위 ID와 IP는 운영 계약값이 아닌 검증 시점의 값이다. destroy/apply 후에는 바뀔 수 있으므로
 `terraform output`과 `tailscale status`로 다시 조회한다.
@@ -58,14 +64,14 @@ VMware는 Terraform/Git/AWS CLI 작업에 사용하고, EKS Private API와 관�
 terraform apply
   → Router EC2 생성
   → cloud-init에서 Tailscale 설치
-  → Instance Role로 Secrets Manager Secret 조회
-  → OAuth client secret으로 자동 인증
-  → tag:petflow-router 적용
-  → 10.0.0.0/20 광고
-  → Tailnet autoApprovers가 Route 승인
+  → SSM State Parameter 존재 확인
+  → 기존 State 있음: 동일 Machine Identity 복구
+  → 기존 State 없음: Secrets Manager OAuth Secret으로 최초 등록
+  → tailscaled가 SSM SecureString에 State 저장
+  → tag:petflow-router / 10.0.0.0/20 설정 복구
 ~~~
 
-OAuth Secret은 root만 읽을 수 있는 /run 임시 파일에 저장하고 인증 직후 삭제한다. cloud-init은 set -x를 사용하지 않는다. OAuth 등록은 재생성되는 서버에 맞게 ephemeral=false, preauthorized=true로 요청한다.
+OAuth Secret은 최초 등록에서만 root 전용 `/run` 임시 파일에 저장하고 인증 직후 삭제한다. cloud-init은 `set -x`를 사용하지 않는다. SSM State Parameter가 존재하지만 복구에 실패하면 OAuth로 재등록하지 않고 실패 처리해 중복 Device 생성을 막는다.
 
 ## Tailnet 최초 1회 설정
 
@@ -136,7 +142,9 @@ terraform -chdir=terraform/environments/dev test -filter=tests/tailscale.tftest.
 ./tplan.sh
 ~~~
 
-정상 Plan 범위는 Router IAM inline policy 추가와 User Data 변경에 따른 Router EC2 교체다. EKS, Node Group, VPC, Route53, S3, ECR 또는 CNPG IAM의 교체/삭제가 나타나면 적용하지 않는다.
+정상 Plan 범위는 Router State IAM inline policy 추가와 User Data 변경에 따른 Router EC2 교체다. EKS, Node Group, VPC, Route53, S3, ECR 또는 CNPG IAM의 교체/삭제가 나타나면 적용하지 않는다.
+
+최초 도입에서는 전체 apply 전에 반드시 현재 연결된 Router의 로컬 State를 SSM으로 마이그레이션한다. Parameter가 비어 있는 상태로 Router를 교체하면 기존 Identity를 보존할 수 없다. 상세 명령과 중단 기준은 [SSM State 운영 Runbook](./tailscale-persistent-state.md)을 따른다.
 
 ~~~bash
 ./tapply.sh
@@ -160,13 +168,18 @@ Router에서 확인한다.
 sudo cloud-init status --long
 sudo tailscale status
 sudo tailscale ip -4
-sudo grep -Ei 'tskey-|auth-key' /var/log/cloud-init-output.log
+if sudo grep -Eiq 'tskey-[[:alnum:]_-]+' /var/log/cloud-init-output.log; then
+  echo "민감정보 패턴이 발견되었습니다." >&2
+  exit 1
+else
+  echo "민감정보 패턴 없음"
+fi
 ~~~
 
 정상 기준:
 
 - cloud-init status가 done
-- petflow-dev-tailscale-router가 Connected
+- 기존 Device `petflow-dev-tailscale-router-3`가 Connected
 - tag:petflow-router 적용
 - 10.0.0.0/20 Route 활성화
 - 실제 OAuth Secret 문자열이 cloud-init 로그에 없음
@@ -219,6 +232,6 @@ AWS_PROFILE=ujibil2 ./tdestroy.sh
 AWS_PROFILE=ujibil2 ./tapply.sh
 ~~~
 
-재생성 후 별도 SSM 인증, 브라우저 로그인, Route 수동 승인 없이 Router와 Private 관리 경로가 복구되어야 한다.
+재생성 후 별도 SSM 인증, 브라우저 로그인, Route 수동 승인 없이 기존 Router Identity와 Private 관리 경로가 복구되어야 한다. SSM Parameter는 Terraform Resource가 아니므로 DEV destroy 후에도 남는다.
 
-기존 Router가 non-ephemeral 장비로 Tailnet에 남아 있다면 destroy 후 Admin Console에서 오래된 Device Entry를 정리한다.
+마이그레이션한 현재 Device가 재연결되고 새 `router-N`이 생성되지 않은 것을 확인한 뒤에만, Admin Console에서 기존 Offline Device Entry를 정리한다. 프로젝트 종료 전에는 `/petflow/dev/tailscale/router-state`를 삭제하지 않는다.

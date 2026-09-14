@@ -6,6 +6,10 @@
 locals {
   # 기존 tfvars를 사용하는 팀원도 CNPG 백업 Bucket을 빠뜨리지 않도록 root에서 보장한다.
   dev_s3_bucket_purposes = distinct(concat(var.s3_bucket_purposes, ["db-backups"]))
+
+  # CNPG가 ArgoCD bootstrap 직후 사용할 PostgreSQL 기반 이미지 Repository를
+  # 서비스 Repository와 함께 생성한다. 실제 이미지는 tapply.sh가 apply 후 push한다.
+  dev_ecr_repository_names = distinct(concat(var.ecr_repository_names, ["postgresql-pg-bigm"]))
 }
 
 module "network" {
@@ -90,7 +94,7 @@ module "ecr" {
   source = "../../modules/ecr"
 
   project_name     = var.project_name
-  repository_names = var.ecr_repository_names
+  repository_names = local.dev_ecr_repository_names
   # image_tag_mutability / force_delete / lifecycle 설정은 모듈 기본값(DEV 기준) 사용
 }
 

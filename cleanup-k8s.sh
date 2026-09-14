@@ -9,7 +9,8 @@ TERRAFORM_DIR="${SCRIPT_DIR}/terraform/environments/dev"
 EXPECTED_AWS_ACCOUNT_ID="297165773875"
 EXPECTED_AWS_REGION="ap-northeast-2"
 EXPECTED_EKS_CLUSTER_NAME="petflow-eks"
-PERSISTENT_NAMESPACES=(redis kafka)
+CNPG_NAMESPACE="database"
+PERSISTENT_NAMESPACES=("${CNPG_NAMESPACE}" redis kafka)
 TEMP_KUBECONFIG=""
 EKS_DESCRIBE_ERROR=""
 KUBECTL=()
@@ -156,6 +157,57 @@ kafkatopics.kafka.strimzi.io	kafkatopic
 kafkas.kafka.strimzi.io	kafka
 kafkanodepools.kafka.strimzi.io	kafkanodepool
 STRIMZI_RESOURCES
+}
+
+delete_cnpg_resources() {
+  local crd_name
+  local resource_name
+  local resource_label
+  local crd_resource
+  local resources
+
+  if ! namespace_exists "${CNPG_NAMESPACE}"; then
+    echo "[cleanup-k8s] ${CNPG_NAMESPACE} Namespace가 없어 CNPG Resource 정리를 건너뜁니다."
+    return
+  fi
+
+  # Argo CD를 먼저 중지한 상태에서 상위 리소스부터 제거한다.
+  # Database CR은 databaseReclaimPolicy=retain이므로 PostgreSQL 내부 Database를 DROP하지 않는다.
+  # Cluster CR을 제거한 뒤 남은 PVC는 별도 단계에서 삭제하고 실제 EBS 삭제까지 확인한다.
+  while IFS=$'\t' read -r crd_name resource_name resource_label; do
+    if ! crd_resource="$("${KUBECTL[@]}" get crd "${crd_name}" \
+      --ignore-not-found -o name)"; then
+      echo "[cleanup-k8s] CNPG CRD 존재 여부를 확인하지 못했습니다: ${crd_name}" >&2
+      return 1
+    fi
+
+    if [[ -z "${crd_resource}" ]]; then
+      echo "[cleanup-k8s] ${crd_name} CRD가 없어 건너뜁니다."
+      continue
+    fi
+
+    if ! resources="$("${KUBECTL[@]}" get "${resource_name}" \
+      --namespace "${CNPG_NAMESPACE}" -o name)"; then
+      echo "[cleanup-k8s] ${resource_label} Resource를 조회하지 못했습니다." >&2
+      return 1
+    fi
+
+    if [[ -z "${resources}" ]]; then
+      echo "[cleanup-k8s] 삭제할 ${resource_label} Resource가 없습니다."
+      continue
+    fi
+
+    echo "[cleanup-k8s] CNPG ${resource_label} Resource 삭제"
+    "${KUBECTL[@]}" delete "${resource_name}" --all \
+      --namespace "${CNPG_NAMESPACE}" \
+      --ignore-not-found --wait=true --timeout=10m
+  done <<'CNPG_RESOURCES'
+scheduledbackups.postgresql.cnpg.io	scheduledbackups.postgresql.cnpg.io	ScheduledBackup
+backups.postgresql.cnpg.io	backups.postgresql.cnpg.io	Backup
+databases.postgresql.cnpg.io	databases.postgresql.cnpg.io	Database
+clusters.postgresql.cnpg.io	clusters.postgresql.cnpg.io	Cluster
+objectstores.barmancloud.cnpg.io	objectstores.barmancloud.cnpg.io	ObjectStore
+CNPG_RESOURCES
 }
 
 delete_persistent_workloads() {
@@ -368,7 +420,7 @@ if ! aws eks describe-cluster --name "${cluster_name}" --region "${aws_region}" 
   exit 1
 fi
 
-echo "[1/7] Kubernetes API 연결 확인"
+echo "[1/8] Kubernetes API 연결 확인"
 
 TEMP_KUBECONFIG="$(mktemp /tmp/petflow-cleanup-kubeconfig.XXXXXX)"
 aws eks update-kubeconfig --name "${cluster_name}" --region "${aws_region}" --kubeconfig "${TEMP_KUBECONFIG}" >/dev/null
@@ -382,7 +434,7 @@ fi
 
 echo "[cleanup-k8s] Kubernetes API 연결 확인 완료"
 
-echo "[2/7] Argo CD 동기화 중지"
+echo "[2/8] Argo CD 동기화 중지"
 if "${KUBECTL[@]}" get statefulset argocd-application-controller --namespace argocd >/dev/null 2>&1; then
   "${KUBECTL[@]}" scale statefulset argocd-application-controller --namespace argocd --replicas=0 --timeout=60s
   echo "[cleanup-k8s] Argo CD Application Controller 중지 완료"
@@ -390,7 +442,7 @@ else
   echo "[cleanup-k8s] 실행 중인 Argo CD Application Controller가 없습니다."
 fi
 
-echo "[3/7] Ingress 확인 및 삭제"
+echo "[3/8] Ingress 확인 및 삭제"
 ingress_refs="$("${KUBECTL[@]}" get ingresses --all-namespaces -o jsonpath='{range .items[*]}{.metadata.namespace}{"/"}{.metadata.name}{"\n"}{end}')"
 
 if [[ -z "${ingress_refs}" ]]; then
@@ -405,7 +457,7 @@ else
   done <<< "${ingress_refs}"
 fi
 
-echo "[4/7] LoadBalancer Service 확인 및 삭제"
+echo "[4/8] LoadBalancer Service 확인 및 삭제"
 load_balancer_service_refs="$("${KUBECTL[@]}" get services --all-namespaces -o jsonpath='{range .items[?(@.spec.type=="LoadBalancer")]}{.metadata.namespace}{"/"}{.metadata.name}{"\n"}{end}')"
 
 if [[ -z "${load_balancer_service_refs}" ]]; then
@@ -424,14 +476,17 @@ if [[ -n "${vpc_id}" ]]; then
   verify_no_aws_load_balancers "${vpc_id}" "${aws_region}"
 fi
 
-echo "[5/7] Redis/Kafka PVC 추적 및 Workload 정리"
+echo "[5/8] Database/Redis/Kafka PVC/PV/EBS 추적"
 track_persistent_storage
-delete_persistent_workloads
 
-echo "[6/7] Redis/Kafka PVC 삭제"
+echo "[6/8] CNPG Resource 정리"
+delete_cnpg_resources
+
+echo "[7/8] Database/Redis/Kafka Workload 및 PVC 삭제"
+delete_persistent_workloads
 delete_persistent_volume_claims
 
-echo "[7/7] Redis/Kafka PV/EBS 삭제 확인"
+echo "[8/8] Database/Redis/Kafka PV/EBS 삭제 확인"
 verify_persistent_storage_cleanup
 
 echo "======================================"

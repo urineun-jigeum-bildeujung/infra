@@ -95,6 +95,7 @@ Infra 팀이 제공하는 값은 [Terraform Output 가이드](terraform-outputs.
 | CloudNative 대상 | Infra 제공/검증 |
 |---|---|
 | Argo CD | EKS API/RBAC/Network 기반 |
+| External Secrets Operator | Pod Identity와 petflow/* Secrets Manager 읽기 Policy |
 | Jenkins/Kaniko | Pod Identity와 ECR Push Policy |
 | CNPG | EBS CSI, Pod Identity, S3 Backup 경로 |
 | Karpenter | Controller/Node IAM, Access Entry, Subnet/SG Discovery Tag |

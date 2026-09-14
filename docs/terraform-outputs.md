@@ -92,6 +92,10 @@ S3 Map key는 `static`, `product-images`, `uploads`, `db-backups`다.
 | `karpenter_discovery_value` | Subnet/SG Discovery Tag |
 | `jenkins_kaniko_role_arn` | Jenkins Agent의 ECR 권한 확인 |
 | `jenkins_ecr_policy_arn` | Jenkins ECR Policy 확인 |
+| `external_secrets_role_arn` | ESO Pod Identity Role 확인 |
+| `external_secrets_policy_arn` | ESO Secrets Manager 읽기 Policy 확인 |
+| `external_secrets_pod_identity_association_id` | ESO Pod Identity Association 확인 |
+| `external_secrets_service_account` | ESO Namespace/ServiceAccount 계약 |
 | `cnpg_backup_role_arn` | CNPG S3 Backup 권한 확인 |
 | `cnpg_backup_destination_path` | Barman ObjectStore 경로 |
 | `cnpg_backup_service_account` | CNPG Pod Identity 계약 |

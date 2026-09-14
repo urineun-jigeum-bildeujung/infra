@@ -39,3 +39,26 @@ output "jenkins_ecr_policy_arn" {
   description = "Jenkins Kaniko의 petflow ECR Push/Pull Policy ARN"
   value       = aws_iam_policy.jenkins_ecr.arn
 }
+
+output "external_secrets_role_arn" {
+  description = "External Secrets Operator가 EKS Pod Identity로 사용하는 IAM Role ARN"
+  value       = aws_iam_role.external_secrets.arn
+}
+
+output "external_secrets_policy_arn" {
+  description = "External Secrets Operator의 petflow Secrets Manager 읽기 Policy ARN"
+  value       = aws_iam_policy.external_secrets.arn
+}
+
+output "external_secrets_pod_identity_association_id" {
+  description = "External Secrets Operator용 EKS Pod Identity Association ID"
+  value       = aws_eks_pod_identity_association.external_secrets.association_id
+}
+
+output "external_secrets_service_account" {
+  description = "External Secrets Operator Helm 설치와 Pod Identity가 공유하는 Namespace/ServiceAccount"
+  value = {
+    namespace = aws_eks_pod_identity_association.external_secrets.namespace
+    name      = aws_eks_pod_identity_association.external_secrets.service_account
+  }
+}

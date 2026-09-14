@@ -84,9 +84,10 @@ cnpg_backup_prefix        = "cnpg"       # ObjectStore destinationPath: s3://pet
 # =============================================================================
 # ECR
 # =============================================================================
-# Source of Truth: 백엔드 리포지토리(sever) dev 브랜치의 services/ 디렉터리.
-# 실제 생성 이름은 <project_name>/<service_name> 형태 (예: petflow/auth-service).
-# 백엔드에 새 서비스가 추가되면 이 목록에 이름만 추가한다 (기존 Repository 영향 없음).
+# Source of Truth: 백엔드(sever) dev 브랜치의 services/ 디렉터리 + 프론트엔드(web) 등
+# 컨테이너 이미지를 push하는 각 레포. 실제 생성 이름은 <project_name>/<image_name> 형태
+# (예: petflow/auth-service, petflow/web). 새 이미지가 생기면 이 목록에 이름만 추가한다
+# (기존 Repository 영향 없음).
 ecr_repository_names = [
   "auth-service",
   "member-service",
@@ -95,4 +96,5 @@ ecr_repository_names = [
   "product-service",
   "notification-service",
   "review-service",
+  "web",
 ]

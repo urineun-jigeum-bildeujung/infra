@@ -30,11 +30,10 @@ variable "image_tag_mutability" {
 variable "force_delete" {
   description = <<-EOT
     true 면 이미지가 남아있는 Repository 도 terraform destroy 로 삭제할 수 있다.
-    DEV 는 반복적인 destroy/apply 를 전제로 하므로 true 를 기본값으로 사용한다.
-    운영 환경에서는 false 로 두어 이미지가 있는 Repository 의 실수 삭제를 방지한다.
+    Repository와 Image를 인프라 재생성 사이에도 보존하므로 false 를 기본값으로 사용한다.
   EOT
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "lifecycle_keep_count" {

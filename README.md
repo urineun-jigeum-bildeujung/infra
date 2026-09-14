@@ -86,7 +86,7 @@ infra/
 └─ alldestroy.sh             # cleanup-k8s.sh → tdestroy.sh 통합 실행
 ```
 
-`bootstrap/` 과 `environments/dev/` 는 **생명주기가 다르다**. `./tdestroy.sh`는 Bootstrap, Route53/ACM, 모든 S3 Bucket과 Tailscale OAuth Secret을 보존하고 나머지 DEV 인프라만 삭제한다. 도메인 이전은 [docs/route53-acm.md](docs/route53-acm.md), 생명주기 원칙은 [docs/architecture.md](docs/architecture.md) 참고.
+`bootstrap/` 과 `environments/dev/` 는 **생명주기가 다르다**. `./tdestroy.sh`는 Bootstrap, ECR Repository/Image, Route53/ACM, 모든 S3 Bucket과 Tailscale OAuth Secret을 보존하고 나머지 DEV 인프라만 삭제한다. 도메인 이전은 [docs/route53-acm.md](docs/route53-acm.md), 생명주기 원칙은 [docs/architecture.md](docs/architecture.md) 참고.
 
 향후 확장 예정:
 
@@ -238,7 +238,7 @@ State locking (`use_lockfile = true`) 덕분에 팀원 A 가 apply 중이면 B �
 | `tplan.sh` | 프로젝트 루트 | AWS 인증 확인 → `terraform fmt` + `validate` + `plan` |
 | `tapply.sh` | 프로젝트 루트 | AWS 인증 확인 → `fmt` + `validate` + `apply --auto-approve` |
 | `cleanup-k8s.sh` | 프로젝트 루트 | 대상 계정/Cluster/Region/EKS API 확인 → Argo CD 중지 → LB 삭제 → Redis/Kafka PVC·PV·EBS 소멸 확인 |
-| `tdestroy.sh` | 프로젝트 루트 | 대상 계정/AWS LB 부재 확인 → Route53/ACM/S3를 제외한 DEV Terraform 모듈 삭제 |
+| `tdestroy.sh` | 프로젝트 루트 | 대상 계정/AWS LB 부재 확인 → ECR/Route53/ACM/S3를 제외한 DEV Terraform 모듈 삭제 |
 | `alldestroy.sh` | 프로젝트 루트 | `cleanup-k8s.sh` 성공 후에만 `tdestroy.sh` 실행 |
 
 `alldestroy.sh`는 별도 확인 입력 없이 즉시 실행된다. Kubernetes 정리에 실패하면 `set -e`에 의해 Terraform Destroy는 실행되지 않는다. VMware 운영 기준은 Tailscale subnet route를 받지 않는 Terraform/Git 전용 환경이다. 통합 삭제는 Terraform/AWS CLI가 준비된 Windows WSL과 Tailscale ON 상태에서 실행한다. 역할을 나눠 실행할 때는 Windows에서 `./cleanup-k8s.sh`를 먼저 완료하고 VMware에서 `./tdestroy.sh`를 실행한다.

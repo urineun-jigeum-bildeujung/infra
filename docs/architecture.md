@@ -399,9 +399,10 @@ PV와 EBS가 실제로 사라진 경우에만 성공한다.
 API 접근, PVC/PV 삭제 또는 EBS 소멸 확인이 실패하면 Terraform Destroy를 시작하지 않는다.
 스크립트는 AWS CLI `delete-volume`로 고아 Volume을 자동 강제 삭제하지 않는다.
 
-`tdestroy.sh`는 Network/EKS/IAM/Platform IAM/ECR/Tailscale을 삭제하고 Bootstrap,
-Route53/ACM, Tailscale OAuth Secret과 DEV S3 4개(`static`, `product-images`,
-`uploads`, `db-backups`)를 보존한다. 상세 절차는 [Operations](operations.md)를 따른다.
+`tdestroy.sh`는 Network/EKS/IAM/Platform IAM/Tailscale을 삭제하고 Bootstrap,
+ECR Repository/Image, Route53/ACM, Tailscale OAuth Secret과 DEV S3 4개(`static`,
+`product-images`, `uploads`, `db-backups`)를 보존한다. ECR은 `force_delete=false`와
+`prevent_destroy`로도 실수 삭제를 방어한다. 상세 절차는 [Operations](operations.md)를 따른다.
 
 ---
 

@@ -95,7 +95,8 @@ module "ecr" {
 
   project_name     = var.project_name
   repository_names = local.dev_ecr_repository_names
-  # image_tag_mutability / force_delete / lifecycle 설정은 모듈 기본값(DEV 기준) 사용
+  force_delete     = false
+  # Repository는 module lifecycle의 prevent_destroy로 보호하고 tdestroy.sh 대상에서도 제외한다.
 }
 
 module "s3" {

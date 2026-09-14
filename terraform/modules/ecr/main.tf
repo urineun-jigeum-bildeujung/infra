@@ -21,8 +21,12 @@ resource "aws_ecr_repository" "services" {
   name                 = "${var.project_name}/${each.value}"
   image_tag_mutability = var.image_tag_mutability
 
-  # DEV 는 반복 destroy/apply 를 전제로 하므로 이미지가 남아있어도 삭제 가능하게 둔다.
+  # Repository와 Image는 일반 DEV 인프라보다 긴 생명주기로 보존한다.
   force_delete = var.force_delete
+
+  lifecycle {
+    prevent_destroy = true
+  }
 
   # Push 될 때마다 기본 취약점 스캔 수행
   image_scanning_configuration {

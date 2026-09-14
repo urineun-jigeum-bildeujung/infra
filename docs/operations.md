@@ -192,6 +192,7 @@ AWS_PROFILE=ujibil2 ./tdestroy.sh
 보존 대상:
 
 - Terraform State Backend와 Bootstrap IAM
+- 서비스별 ECR Repository와 저장된 Image
 - Route53 Hosted Zone와 ACM 인증서
 - `static`, `product-images`, `uploads`, `db-backups` S3 Bucket
 - Tailscale OAuth Secret

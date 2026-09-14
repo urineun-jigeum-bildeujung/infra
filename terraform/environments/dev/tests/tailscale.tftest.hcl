@@ -1,4 +1,16 @@
 mock_provider "aws" {
+  mock_data "aws_caller_identity" {
+    defaults = {
+      account_id = "297165773875"
+    }
+  }
+
+  mock_data "aws_partition" {
+    defaults = {
+      partition = "aws"
+    }
+  }
+
   mock_data "aws_ssm_parameter" {
     defaults = {
       value = "ami-0123456789abcdef0"
@@ -93,6 +105,26 @@ run "router_is_private_and_ssm_managed" {
 
   assert {
     condition = alltrue([
+      for statement in data.aws_iam_policy_document.tailscale_state.statement :
+      statement.sid == "ReadWriteTailscaleState" &&
+      toset(statement.actions) == toset(["ssm:GetParameter", "ssm:PutParameter"]) &&
+      toset(statement.resources) == toset([
+        "arn:aws:ssm:ap-northeast-2:297165773875:parameter/petflow/dev/tailscale/router-state"
+      ])
+    ])
+    error_message = "Router IAM Role은 지정한 Tailscale State Parameter 하나에만 Get/Put 권한을 가져야 합니다."
+  }
+
+  assert {
+    condition = (
+      aws_iam_role_policy.tailscale_state.name == "petflow-dev-tailscale-router-state" &&
+      aws_iam_role_policy.tailscale_state.role == aws_iam_role.router.id
+    )
+    error_message = "Tailscale State 최소 권한 정책은 Router IAM Role에 연결되어야 합니다."
+  }
+
+  assert {
+    condition = alltrue([
       for statement in data.aws_iam_policy_document.ec2_trust.statement :
       toset(statement.actions) == toset(["sts:AssumeRole"]) &&
       length(statement.principals) == 1 &&
@@ -110,6 +142,12 @@ run "router_is_private_and_ssm_managed" {
       strcontains(aws_instance.router.user_data, "net.ipv4.ip_forward = 1") &&
       strcontains(aws_instance.router.user_data, "https://tailscale.com/install.sh") &&
       strcontains(aws_instance.router.user_data, "aws secretsmanager get-secret-value") &&
+      strcontains(aws_instance.router.user_data, "systemctl stop tailscaled") &&
+      strcontains(aws_instance.router.user_data, "tailscaled.service.d/10-persistent-state.conf") &&
+      strcontains(aws_instance.router.user_data, "--state=arn:aws:ssm:ap-northeast-2:297165773875:parameter/petflow/dev/tailscale/router-state") &&
+      strcontains(aws_instance.router.user_data, "aws ssm get-parameter") &&
+      strcontains(aws_instance.router.user_data, "STATE_PARAMETER_EXISTS") &&
+      strcontains(aws_instance.router.user_data, "OAuth 재등록은 수행하지 않습니다") &&
       strcontains(aws_instance.router.user_data, "--auth-key=\"file:$${OAUTH_SECRET_FILE}\"") &&
       strcontains(aws_instance.router.user_data, "?ephemeral=false&preauthorized=true") &&
       strcontains(aws_instance.router.user_data, "--advertise-tags=\"tag:petflow-router\"") &&
@@ -117,7 +155,7 @@ run "router_is_private_and_ssm_managed" {
       !strcontains(aws_instance.router.user_data, "set -euxo pipefail") &&
       !strcontains(lower(aws_instance.router.user_data), "tskey-")
     )
-    error_message = "User Data는 Secret을 노출하지 않고 OAuth 인증, 태그, Route 광고를 자동 구성해야 합니다."
+    error_message = "User Data는 State를 SSM에서 복구하고 최초 1회만 Secret 노출 없이 OAuth 등록해야 합니다."
   }
 
   assert {

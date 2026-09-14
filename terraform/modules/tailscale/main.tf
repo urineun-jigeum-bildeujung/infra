@@ -2,11 +2,25 @@
 #
 # AWS VPC 관리 트래픽 전용 Router를 Private Subnet에 배치한다.
 # EC2에는 Public IP와 inbound 규칙을 두지 않고 SSM Session Manager로만 관리한다.
-# OAuth Secret 값은 Terraform State/User Data에 넣지 않고 Router가 부팅할 때
-# Secrets Manager에서 직접 조회하여 Tailnet에 자동 등록한다.
+# OAuth Secret 값과 Tailscale State 값은 Terraform State/User Data에 넣지 않는다.
+# 최초 등록 시에만 Secrets Manager에서 OAuth Secret을 조회하고, 이후 Machine
+# Identity는 tailscaled가 AWS SSM Parameter Store에 직접 저장하고 복구한다.
+
+data "aws_caller_identity" "current" {}
+
+data "aws_partition" "current" {}
 
 locals {
   name = "${var.project_name}-${var.environment}-tailscale-router"
+
+  tailscale_state_parameter_name = "/${var.project_name}/${var.environment}/tailscale/router-state"
+  tailscale_state_parameter_arn = format(
+    "arn:%s:ssm:%s:%s:parameter%s",
+    data.aws_partition.current.partition,
+    var.aws_region,
+    data.aws_caller_identity.current.account_id,
+    local.tailscale_state_parameter_name,
+  )
 }
 
 # Amazon Linux 2023 최신 x86_64 AMI는 AWS가 관리하는 Public Parameter로 조회한다.
@@ -36,6 +50,22 @@ data "aws_iam_policy_document" "tailscale_secret" {
   }
 }
 
+# tailscaled가 Machine Identity를 SecureString Parameter로 직접 생성/갱신한다.
+# Parameter 값은 Terraform resource로 관리하지 않아 State 노출과 drift를 피한다.
+data "aws_iam_policy_document" "tailscale_state" {
+  statement {
+    sid    = "ReadWriteTailscaleState"
+    effect = "Allow"
+
+    actions = [
+      "ssm:GetParameter",
+      "ssm:PutParameter",
+    ]
+
+    resources = [local.tailscale_state_parameter_arn]
+  }
+}
+
 resource "aws_iam_role" "router" {
   name               = local.name
   description        = "SSM access role for the Petflow Tailscale subnet router"
@@ -51,6 +81,12 @@ resource "aws_iam_role_policy" "tailscale_secret" {
   name   = "${local.name}-secret"
   role   = aws_iam_role.router.id
   policy = data.aws_iam_policy_document.tailscale_secret.json
+}
+
+resource "aws_iam_role_policy" "tailscale_state" {
+  name   = "${local.name}-state"
+  role   = aws_iam_role.router.id
+  policy = data.aws_iam_policy_document.tailscale_state.json
 }
 
 resource "aws_iam_instance_profile" "router" {
@@ -113,8 +149,8 @@ resource "aws_instance" "router" {
     delete_on_termination = true
   }
 
-  # Secret 값은 User Data에 포함하지 않는다. 부팅 시 IAM Role로 Secrets Manager에서
-  # 조회하고 root만 읽을 수 있는 임시 파일을 통해 Tailscale에 전달한다.
+  # Secret/State 값은 User Data에 포함하지 않는다. tailscaled는 SSM ARN만 전달받아
+  # State를 직접 복구하고, Parameter가 없을 때만 OAuth Secret으로 최초 등록한다.
   user_data = <<-EOT
     #!/bin/bash
     set -euo pipefail
@@ -133,7 +169,73 @@ resource "aws_instance" "router" {
     curl -fsSL https://tailscale.com/install.sh | sh
 
     systemctl enable --now amazon-ssm-agent
+
+    # 설치 스크립트가 기본 로컬 State로 daemon을 시작했을 수 있으므로 중지한 뒤,
+    # package unit을 직접 수정하지 않고 SSM State Backend override를 적용한다.
+    systemctl stop tailscaled || true
+    install -d -m 0755 /etc/systemd/system/tailscaled.service.d
+
+    cat > /etc/systemd/system/tailscaled.service.d/10-persistent-state.conf <<'SYSTEMD'
+    [Service]
+    ExecStart=
+    ExecStart=/usr/sbin/tailscaled --state=${local.tailscale_state_parameter_arn} --socket=/run/tailscale/tailscaled.sock --port=$${PORT} $FLAGS
+    SYSTEMD
+
+    systemctl daemon-reload
+
+    # Parameter 값은 조회하지 않는다. 기존 Identity 유무만 metadata 조회로 판단한다.
+    # IAM eventual consistency와 일시적인 SSM 오류는 재시도하되, ParameterNotFound만
+    # 최초 등록으로 취급한다.
+    STATE_PARAMETER_EXISTS=false
+    STATE_CHECK_ERROR="/run/petflow-tailscale-state-check.err"
+    trap 'rm -f "$${STATE_CHECK_ERROR}"' EXIT
+
+    for attempt in $(seq 1 18); do
+      if aws ssm get-parameter \
+        --name "${local.tailscale_state_parameter_name}" \
+        --region "${var.aws_region}" \
+        --query 'Parameter.Name' \
+        --output text >/dev/null 2>"$${STATE_CHECK_ERROR}"; then
+        STATE_PARAMETER_EXISTS=true
+        break
+      fi
+
+      if grep -q 'ParameterNotFound' "$${STATE_CHECK_ERROR}"; then
+        break
+      fi
+
+      if ((attempt == 18)); then
+        echo "Tailscale State Parameter metadata를 확인하지 못했습니다." >&2
+        exit 1
+      fi
+      sleep 10
+    done
+
+    rm -f "$${STATE_CHECK_ERROR}"
+    trap - EXIT
+
     systemctl enable --now tailscaled
+
+    if [[ "$${STATE_PARAMETER_EXISTS}" == "true" ]]; then
+      # State가 있는데 복구하지 못하면 OAuth fallback을 금지한다. 권한 오류/State
+      # 손상 시 중복 Machine Identity가 생성되는 것을 방지하기 위한 fail-closed 동작이다.
+      for attempt in $(seq 1 18); do
+        if tailscale status --json 2>/dev/null | grep -q '"BackendState"[[:space:]]*:[[:space:]]*"Running"'; then
+          echo "Existing Tailscale identity restored from SSM."
+          exit 0
+        fi
+
+        if ! systemctl is-active --quiet tailscaled; then
+          systemctl restart tailscaled
+        fi
+
+        if ((attempt == 18)); then
+          echo "기존 Tailscale State를 SSM에서 복구하지 못했습니다. OAuth 재등록은 수행하지 않습니다." >&2
+          exit 1
+        fi
+        sleep 10
+      done
+    fi
 
     OAUTH_SECRET_FILE="/run/petflow/tailscale-oauth-secret"
     install -d -m 0700 /run/petflow
@@ -169,6 +271,28 @@ resource "aws_instance" "router" {
 
     rm -f "$${OAUTH_SECRET_FILE}"
     trap - EXIT
+
+    # 최초 daemon 시작은 빈 Parameter(Version 1)를 만들 수 있다. OAuth 등록 후
+    # Backend가 Running이고 Version이 2 이상이어야 실제 Identity 저장으로 판단한다.
+    for attempt in $(seq 1 18); do
+      STATE_PARAMETER_VERSION=$(aws ssm get-parameter \
+        --name "${local.tailscale_state_parameter_name}" \
+        --region "${var.aws_region}" \
+        --query 'Parameter.Version' \
+        --output text 2>/dev/null || true)
+
+      if tailscale status --json 2>/dev/null | grep -q '"BackendState"[[:space:]]*:[[:space:]]*"Running"' && \
+        [[ "$${STATE_PARAMETER_VERSION}" =~ ^[0-9]+$ ]] && \
+        ((STATE_PARAMETER_VERSION >= 2)); then
+        exit 0
+      fi
+
+      if ((attempt == 18)); then
+        echo "최초 Tailscale Identity가 SSM에 저장되지 않았습니다." >&2
+        exit 1
+      fi
+      sleep 10
+    done
   EOT
 
   # User Data 변경이 실제 인스턴스에도 적용되도록 교체한다.
@@ -182,5 +306,6 @@ resource "aws_instance" "router" {
   depends_on = [
     aws_iam_role_policy_attachment.ssm,
     aws_iam_role_policy.tailscale_secret,
+    aws_iam_role_policy.tailscale_state,
   ]
 }

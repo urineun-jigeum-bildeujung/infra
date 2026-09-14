@@ -55,6 +55,16 @@ output "tailscale_router_security_group_id" {
   value       = try(module.tailscale[0].security_group_id, null)
 }
 
+output "tailscale_router_state_parameter_name" {
+  description = "DEV Tailscale Router Identity를 영구 보존하는 SSM Parameter 이름"
+  value       = try(module.tailscale[0].state_parameter_name, null)
+}
+
+output "tailscale_router_state_parameter_arn" {
+  description = "tailscaled SSM State Backend ARN (State 값은 Terraform이 관리하지 않음)"
+  value       = try(module.tailscale[0].state_parameter_arn, null)
+}
+
 output "vpc_cidr" {
   description = "Dev 환경 VPC CIDR"
   value       = module.network.vpc_cidr

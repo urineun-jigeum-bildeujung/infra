@@ -13,6 +13,7 @@
 #   | AWS Load Balancer Controller | kube-system | aws-load-balancer-controller |
 #   | Karpenter                    | kube-system | karpenter                    |
 #   | Jenkins Kaniko                | jenkins     | jenkins-kaniko               |
+#   | External Secrets Operator    | external-secrets | external-secrets        |
 #
 # 관리 대상 (DEV 생명주기 — destroy/apply 반복 가능):
 #   - ALB Controller: Role + 공식 Policy + Pod Identity Association
@@ -20,9 +21,9 @@
 #   - Karpenter Node Role: Karpenter 가 생성하는 Worker 노드용 (Managed Node Group Role 과 분리)
 #     + EKS Access Entry (EC2_LINUX) — API 인증 모드에서 노드가 클러스터에 join 하기 위해 필수
 #   - Jenkins Kaniko: ECR Push/Pull 최소 권한 Role + Policy + Pod Identity Association
+#   - External Secrets Operator: Secrets Manager 읽기 Role + Policy + Pod Identity Association
 #
 # 이번 범위에서 제외:
-#   - External Secrets Operator — Secrets Manager 구조와 GitOps 설치 범위 확정 후 추가
 #   - Karpenter Interruption Queue (SQS) — Spot 중단 대응이 필요해지면 추가
 
 data "aws_caller_identity" "current" {}
@@ -282,4 +283,45 @@ resource "aws_eks_pod_identity_association" "jenkins_kaniko" {
   namespace       = "jenkins"
   service_account = "jenkins-kaniko"
   role_arn        = aws_iam_role.jenkins_kaniko.arn
+}
+
+# =============================================================================
+# External Secrets Operator — Secrets Manager Read Role
+# =============================================================================
+resource "aws_iam_role" "external_secrets" {
+  name               = "${local.name_prefix}-external-secrets"
+  description        = "Role for External Secrets Operator via EKS Pod Identity"
+  assume_role_policy = data.aws_iam_policy_document.pod_identity_trust.json
+}
+
+data "aws_iam_policy_document" "external_secrets" {
+  statement {
+    sid    = "ReadPetflowSecrets"
+    effect = "Allow"
+    actions = [
+      "secretsmanager:GetSecretValue",
+      "secretsmanager:DescribeSecret",
+    ]
+    resources = [
+      "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${var.project_name}/*",
+    ]
+  }
+}
+
+resource "aws_iam_policy" "external_secrets" {
+  name        = "${local.name_prefix}-external-secrets"
+  description = "Read-only access for External Secrets Operator to project secrets"
+  policy      = data.aws_iam_policy_document.external_secrets.json
+}
+
+resource "aws_iam_role_policy_attachment" "external_secrets" {
+  role       = aws_iam_role.external_secrets.name
+  policy_arn = aws_iam_policy.external_secrets.arn
+}
+
+resource "aws_eks_pod_identity_association" "external_secrets" {
+  cluster_name    = var.cluster_name
+  namespace       = "external-secrets"
+  service_account = "external-secrets"
+  role_arn        = aws_iam_role.external_secrets.arn
 }

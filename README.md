@@ -46,6 +46,7 @@ infra/
 │  ├─ architecture.md
 │  ├─ capacity-plan.md        # Worker Node Capacity / 확장 / DEV 비용 기준
 │  ├─ dev-infra-validation.md # DEV 플랫폼 기반 검증 결과
+│  ├─ external-secrets-operator.md # ESO Pod Identity / Secrets Manager 연동 계약
 │  ├─ jenkins-kaniko-ecr.md   # Jenkins Kaniko / ECR 연동 계약
 │  ├─ operations.md           # Apply / Destroy / 장애 확인 절차
 │  ├─ platform-integration.md  # Karpenter / ALB Controller GitOps 연동 계약

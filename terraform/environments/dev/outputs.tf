@@ -186,6 +186,29 @@ output "jenkins_ecr_policy_arn" {
 }
 
 # =============================================================================
+# External Secrets Operator (EKS Pod Identity / Secrets Manager)
+# =============================================================================
+output "external_secrets_role_arn" {
+  description = "External Secrets Operator가 사용하는 IAM Role ARN"
+  value       = module.platform_iam.external_secrets_role_arn
+}
+
+output "external_secrets_policy_arn" {
+  description = "External Secrets Operator의 petflow Secrets Manager 읽기 Policy ARN"
+  value       = module.platform_iam.external_secrets_policy_arn
+}
+
+output "external_secrets_pod_identity_association_id" {
+  description = "External Secrets Operator용 EKS Pod Identity Association ID"
+  value       = module.platform_iam.external_secrets_pod_identity_association_id
+}
+
+output "external_secrets_service_account" {
+  description = "External Secrets Operator의 Namespace/ServiceAccount 계약"
+  value       = module.platform_iam.external_secrets_service_account
+}
+
+# =============================================================================
 # ECR
 # =============================================================================
 output "ecr_repository_urls" {

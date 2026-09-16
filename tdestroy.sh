@@ -9,6 +9,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TERRAFORM_DIR="${SCRIPT_DIR}/terraform/environments/dev"
 EXPECTED_AWS_ACCOUNT_ID="297165773875"
 EXPECTED_AWS_REGION="ap-northeast-2"
+CNPG_BACKUP_VAULT_NAME="petflow-dev-cnpg-ebs"
+CNPG_BACKUP_GUARD="${SCRIPT_DIR}/scripts/cnpg-backup-guard.sh"
+CNPG_BACKUP_MANIFEST="${PETFLOW_CNPG_BACKUP_MANIFEST:-}"
 
 require_command() {
   local command_name="$1"
@@ -91,6 +94,30 @@ terraform init -backend-config=backend.hcl -input=false
 # 남긴 채 VPC 삭제를 시작하지 않도록 AWS API에서 한 번 더 확인한다.
 vpc_id="$(terraform output -raw vpc_id 2>/dev/null || true)"
 aws_region="$(terraform output -raw aws_region 2>/dev/null || true)"
+cluster_name="$(terraform output -raw eks_cluster_name 2>/dev/null || true)"
+
+eks_exists=false
+backup_guard_verified=false
+if [[ -n "${cluster_name}" ]] && aws eks describe-cluster \
+  --name "${cluster_name}" --region "${aws_region:-${EXPECTED_AWS_REGION}}" >/dev/null 2>&1; then
+  eks_exists=true
+fi
+
+if [[ "${eks_exists}" == "true" ]]; then
+  if [[ -z "${CNPG_BACKUP_MANIFEST}" || ! -f "${CNPG_BACKUP_MANIFEST}" ]]; then
+    echo "[tdestroy] 활성 EKS를 삭제하려면 cleanup-k8s.sh가 만든 CNPG Backup manifest가 필요합니다." >&2
+    echo "[tdestroy] PETFLOW_CNPG_BACKUP_MANIFEST를 정확한 파일 경로로 지정해주세요." >&2
+    exit 1
+  fi
+
+  echo "[tdestroy] Terraform Destroy 직전 CNPG Backup Guard"
+  bash "${CNPG_BACKUP_GUARD}" verify \
+    --region "${aws_region}" \
+    --vault "${CNPG_BACKUP_VAULT_NAME}" \
+    --manifest "${CNPG_BACKUP_MANIFEST}" \
+    --phase "pre-terraform-destroy"
+  backup_guard_verified=true
+fi
 
 if [[ -n "${vpc_id}" && -n "${aws_region}" ]]; then
   if [[ "${aws_region}" != "${EXPECTED_AWS_REGION}" ]]; then
@@ -122,6 +149,11 @@ destroy_targets=(
 
 echo "[2/2] Terraform Destroy 실행"
 terraform destroy --auto-approve -input=false "${destroy_targets[@]}"
+
+if [[ "${backup_guard_verified}" == "true" ]]; then
+  echo "[tdestroy] Terraform Destroy 직후 CNPG Backup Guard"
+  bash "${CNPG_BACKUP_GUARD}" verify --region "${aws_region:-${EXPECTED_AWS_REGION}}" --vault "${CNPG_BACKUP_VAULT_NAME}" --manifest "${CNPG_BACKUP_MANIFEST}" --phase "post-terraform-destroy"
+fi
 
 if [[ -n "${aws_region}" ]]; then
   report_orphan_ebs "${aws_region}"

@@ -32,6 +32,36 @@ ServiceAccount annotation 없이도 Barman Cloud Plugin이 S3 Role을 사용할 
 - DeleteObject 는 Barman retention 정리에 사용하며, Versioning 이 켜진 버킷에서는 이전 버전을 남긴다.
 - 보관 기간 확정 전 자동 만료 lifecycle 은 설정하지 않는다. 이전 버전은 계속 누적되므로 GitOps retention 과 함께 noncurrent version 정리 정책을 후속 설정해야 한다.
 
+## EBS Recovery Point 보호와 Destroy Guard
+
+`petflow-dev-cnpg-ebs` Vault는 AWS Backup Plan의 7일 보존기간과 같은 최소
+보존기간을 갖는 Governance Vault Lock을 사용한다. `changeable_for_days`는 설정하지
+않으므로 Compliance Mode로 전환되지 않는다.
+
+전체 destroy 전에는 현행 CNPG PVC가 참조하는 각 EBS에 대해 온디맨드 Backup을
+완료해야 한다. Recovery Point에는 다음 태그가 필요하다.
+
+- `Purpose=pre-cnpg-maintenance`
+- `Source=petflow-cnpg`
+
+`cleanup-k8s.sh`는 PVC → PV → EBS Volume ID를 추적한 뒤 다음 조건을 모두 확인한다.
+
+1. EBS에 `PetflowBackup=petflow-cnpg` 태그가 있다.
+2. Backup Job 상태가 `COMPLETED`다.
+3. Job의 Recovery Point가 `petflow-dev-cnpg-ebs` Vault에 실제 존재한다.
+4. Recovery Point 상태가 `COMPLETED`이고 원본 Volume ARN이 일치한다.
+5. 위 온디맨드 태그가 일치하고 삭제 예정 시각이 24시간보다 더 남았다.
+6. Vault Lock이 활성화되어 있고 최소 보존기간이 7일 이상이다.
+
+검증 성공 시 `.destroy-evidence/<run-id>-cnpg-backups.json`을 생성한다. 같은 manifest를
+PVC/EBS 정리 직후, Terraform destroy 직전과 직후에 다시 검증하며 한 단계라도
+실패하면 후속 삭제를 중단한다. 이 파일은 로컬 운영 증거이므로 Git에 커밋하지 않는다.
+
+Recovery Point를 확인할 때 Job 이력만 신뢰하지 않는다. Job이 과거에
+`COMPLETED`였더라도 Recovery Point가 삭제될 수 있으므로 반드시
+`describe-recovery-point`와 `list-tags`가 모두 성공해야 한다.
+
+
 ## GitOps 연결 계약
 
 잠정 기본값은 namespace=database, Cluster 이름 및 ServiceAccount=petflow-db 이다.

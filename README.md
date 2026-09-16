@@ -242,12 +242,19 @@ State locking (`use_lockfile = true`) 덕분에 팀원 A 가 apply 중이면 B �
 | `tinit.sh` | 프로젝트 루트 | 필수 도구 / 인증 / `backend.hcl` 확인 후 `terraform init -backend-config=backend.hcl` |
 | `tplan.sh` | 프로젝트 루트 | AWS 인증 확인 → `terraform fmt` + `validate` + `plan` |
 | `tapply.sh` | 프로젝트 루트 | AWS 인증 확인 → `fmt` + `validate` + `apply --auto-approve` |
-| `cleanup-k8s.sh` | 프로젝트 루트 | 대상 계정/Cluster/Region/EKS API 확인 → Argo CD 중지 → LB 삭제 → Redis/Kafka PVC·PV·EBS 소멸 확인 |
-| `tdestroy.sh` | 프로젝트 루트 | 대상 계정/AWS LB 부재 확인 → ECR/Route53/ACM/S3/CNPG AWS Backup을 제외한 DEV Terraform 모듈 삭제 |
-| `alldestroy.sh` | 프로젝트 루트 | `cleanup-k8s.sh` 성공 후에만 `tdestroy.sh` 실행 |
+| `cleanup-k8s.sh` | 프로젝트 루트 | CNPG PVC/EBS별 온디맨드 Recovery Point와 Vault Lock 확인 → Argo CD/LB/Persistent Storage 정리 → 동일 Recovery Point 재검증 |
+| `tdestroy.sh` | 프로젝트 루트 | Backup 증거 manifest 재검증 → ECR/Route53/ACM/S3/CNPG AWS Backup을 제외한 DEV Terraform 모듈 삭제 → Recovery Point 사후 검증 |
+| `alldestroy.sh` | 프로젝트 루트 | 한 실행 ID와 Backup 증거 manifest를 공유하며 `cleanup-k8s.sh` → `tdestroy.sh` 순서로 실행 |
+| `scripts/cnpg-backup-guard.sh` | 프로젝트 루트 | CNPG 온디맨드 Backup Job/Recovery Point/태그/보존기한을 검증하고 destroy 증거 manifest 생성·재검증 |
 | `scripts/tag-cnpg-ebs.sh` | 프로젝트 루트 | 기존 `petflow-db` PVC의 EBS만 검증 후 CNPG Backup 태그 부여 (`--apply`) |
 
-`alldestroy.sh`는 별도 확인 입력 없이 즉시 실행된다. Kubernetes 정리에 실패하면 `set -e`에 의해 Terraform Destroy는 실행되지 않는다. VMware 운영 기준은 Tailscale subnet route를 받지 않는 Terraform/Git 전용 환경이다. 통합 삭제는 Terraform/AWS CLI가 준비된 Windows WSL과 Tailscale ON 상태에서 실행한다. 역할을 나눠 실행할 때는 Windows에서 `./cleanup-k8s.sh`를 먼저 완료하고 VMware에서 `./tdestroy.sh`를 실행한다.
+`alldestroy.sh`는 별도 확인 입력 없이 즉시 실행되지만, CNPG EBS마다
+`Purpose=pre-cnpg-maintenance`, `Source=petflow-cnpg` 태그가 있는 `COMPLETED`
+온디맨드 Recovery Point가 없거나 Vault Lock/보존기한 검증이 실패하면 Kubernetes
+리소스를 삭제하기 전에 중단한다. 통합 삭제는 Terraform/AWS CLI/`jq`가 준비된
+Tailscale ON 환경에서 실행한다. 역할을 나눠 실행할 때는 Windows/WSL의
+`cleanup-k8s.sh`가 출력한 `.destroy-evidence/*-cnpg-backups.json`을 VMware로 안전하게
+전달하고, 해당 경로를 `PETFLOW_CNPG_BACKUP_MANIFEST`로 지정해야 한다.
 
 모두 `terraform/environments/dev` 를 대상으로 한다. Bootstrap 스택(`state-backend`, `terraform-access`)은 이 스크립트로 조작되지 않는다.
 Bootstrap 스택은 담당자가 해당 디렉터리로 직접 이동해서 `terraform` 명령을 실행한다 ([docs/architecture.md](docs/architecture.md) §5 참고).

@@ -30,6 +30,9 @@ backend.hcl
 kubeconfig
 *.kubeconfig
 
+# Destroy 전후 CNPG AWS Backup 증거 manifest
+/.destroy-evidence/
+
 # IDE
 .vscode/
 .idea/

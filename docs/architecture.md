@@ -315,6 +315,7 @@ outputs.tf    - 다른 모듈 / Environment 에서 사용할 값 반환
 | `iam` | EKS Cluster Role, Managed Node Role |
 | `platform-iam` | ALB Controller, Karpenter, Jenkins Kaniko IAM/Pod Identity |
 | `workload-iam` | CNPG S3 Backup IAM/Pod Identity |
+| `ebs-backup` | 태그로 격리된 CNPG EBS의 AWS Backup Vault/Plan/Selection |
 | `ecr` | Docker Image 저장용 ECR Repository (MSA 서비스 단위) |
 | `s3` | 애플리케이션용 S3 Bucket (State 용 Bucket 과 반드시 분리) |
 | `route53-acm` | Public Hosted Zone, ACM 인증서와 DNS 검증 |
@@ -332,6 +333,11 @@ outputs.tf    - 다른 모듈 / Environment 에서 사용할 값 반환
 ## 7. DEV Environment Root Module
 
 `terraform/environments/dev/` 는 실제 Terraform 실행 위치이다.
+
+DEV 데이터 보호는 `workload-iam`의 CNPG S3 Pod Identity와 `ebs-backup`의 태그 기반
+AWS Backup을 함께 사용한다. GitOps의 `gp3-cnpg` StorageClass가 새 PostgreSQL EBS에
+`PetflowBackup=petflow-cnpg` 태그를 부여하고, 기존 PVC의 EBS는 검증 스크립트로 한 번만
+같은 태그를 추가한다. Jenkins/Kafka/Redis가 사용하는 공용 `gp3`는 백업 선택 대상이 아니다.
 
 구성:
 
@@ -400,9 +406,11 @@ API 접근, PVC/PV 삭제 또는 EBS 소멸 확인이 실패하면 Terraform Des
 스크립트는 AWS CLI `delete-volume`로 고아 Volume을 자동 강제 삭제하지 않는다.
 
 `tdestroy.sh`는 Network/EKS/IAM/Platform IAM/Tailscale을 삭제하고 Bootstrap,
-ECR Repository/Image, Route53/ACM, Tailscale OAuth Secret과 DEV S3 4개(`static`,
-`product-images`, `uploads`, `db-backups`)를 보존한다. ECR은 `force_delete=false`와
-`prevent_destroy`로도 실수 삭제를 방어한다. 상세 절차는 [Operations](operations.md)를 따른다.
+ECR Repository/Image, Route53/ACM, Tailscale OAuth Secret, CNPG AWS Backup Vault/Plan과
+DEV S3 4개(`static`, `product-images`, `uploads`, `db-backups`)를 보존한다. 따라서
+`alldestroy.sh`로 원본 PVC/EBS가 삭제되어도 보관 기간 안의 S3 백업과 EBS Recovery Point는
+복구 증적으로 남는다. ECR은 `force_delete=false`와 `prevent_destroy`로도 실수 삭제를 방어한다.
+상세 절차는 [Operations](operations.md)를 따른다.
 
 ---
 

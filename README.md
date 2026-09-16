@@ -87,13 +87,17 @@ infra/
 └─ alldestroy.sh             # cleanup-k8s.sh → tdestroy.sh 통합 실행
 ```
 
-`bootstrap/` 과 `environments/dev/` 는 **생명주기가 다르다**. `./tdestroy.sh`는 Bootstrap, ECR Repository/Image, Route53/ACM, 모든 S3 Bucket과 Tailscale OAuth Secret을 보존하고 나머지 DEV 인프라만 삭제한다. 도메인 이전은 [docs/route53-acm.md](docs/route53-acm.md), 생명주기 원칙은 [docs/architecture.md](docs/architecture.md) 참고.
+`bootstrap/` 과 `environments/dev/` 는 **생명주기가 다르다**. `./tdestroy.sh`는 Bootstrap,
+ECR Repository/Image, Route53/ACM, 모든 S3 Bucket, Tailscale OAuth Secret과 CNPG AWS Backup
+Vault/Plan을 보존하고 나머지 DEV 인프라만 삭제한다. 도메인 이전은
+[docs/route53-acm.md](docs/route53-acm.md), 생명주기 원칙은
+[docs/architecture.md](docs/architecture.md) 참고.
 
-향후 확장 예정:
+Environment 구성:
 
 ```text
 terraform/environments/
-├─ dev/
+├─ dev/      # 공용 DEV 전체 인프라
 └─ prod/     # 추후 추가 (동일한 modules/ 재사용)
 ```
 
@@ -101,7 +105,7 @@ terraform/environments/
 
 * Terraform State 는 로컬이 아닌 **S3 Remote Backend** 를 사용한다.
 * State 저장용 S3 Bucket 은 일반 인프라와 분리해 관리하며, `terraform destroy` 로 삭제되지 않도록 보호한다.
-* 실제 AWS 리소스는 `terraform/modules/` 에서 정의하고, `terraform/environments/dev/` 에서는 모듈 호출 및 값 전달만 담당한다.
+* 실제 AWS 리소스는 `terraform/modules/` 에서 정의하고, `terraform/environments/*/` 에서는 모듈 호출 및 값 전달만 담당한다.
 * Dev 환경은 반복적인 `apply` / `destroy` 를 허용한다.
 * 민감 정보(tfstate, tfvars, backend.hcl, AWS Key, kubeconfig 등)는 Git 에 커밋하지 않는다.
 * 리포지토리 내 사람이 읽는 설명은 모두 한글로 작성한다.
@@ -239,8 +243,9 @@ State locking (`use_lockfile = true`) 덕분에 팀원 A 가 apply 중이면 B �
 | `tplan.sh` | 프로젝트 루트 | AWS 인증 확인 → `terraform fmt` + `validate` + `plan` |
 | `tapply.sh` | 프로젝트 루트 | AWS 인증 확인 → `fmt` + `validate` + `apply --auto-approve` |
 | `cleanup-k8s.sh` | 프로젝트 루트 | 대상 계정/Cluster/Region/EKS API 확인 → Argo CD 중지 → LB 삭제 → Redis/Kafka PVC·PV·EBS 소멸 확인 |
-| `tdestroy.sh` | 프로젝트 루트 | 대상 계정/AWS LB 부재 확인 → ECR/Route53/ACM/S3를 제외한 DEV Terraform 모듈 삭제 |
+| `tdestroy.sh` | 프로젝트 루트 | 대상 계정/AWS LB 부재 확인 → ECR/Route53/ACM/S3/CNPG AWS Backup을 제외한 DEV Terraform 모듈 삭제 |
 | `alldestroy.sh` | 프로젝트 루트 | `cleanup-k8s.sh` 성공 후에만 `tdestroy.sh` 실행 |
+| `scripts/tag-cnpg-ebs.sh` | 프로젝트 루트 | 기존 `petflow-db` PVC의 EBS만 검증 후 CNPG Backup 태그 부여 (`--apply`) |
 
 `alldestroy.sh`는 별도 확인 입력 없이 즉시 실행된다. Kubernetes 정리에 실패하면 `set -e`에 의해 Terraform Destroy는 실행되지 않는다. VMware 운영 기준은 Tailscale subnet route를 받지 않는 Terraform/Git 전용 환경이다. 통합 삭제는 Terraform/AWS CLI가 준비된 Windows WSL과 Tailscale ON 상태에서 실행한다. 역할을 나눠 실행할 때는 Windows에서 `./cleanup-k8s.sh`를 먼저 완료하고 VMware에서 `./tdestroy.sh`를 실행한다.
 

@@ -239,6 +239,11 @@ output "cnpg_backup_pod_identity_association_id" {
   value       = module.workload_iam.cnpg_backup_pod_identity_association_id
 }
 
+output "cnpg_restore_pod_identity_association_id" {
+  description = "CNPG 복원 검증 Cluster용 EKS Pod Identity Association ID"
+  value       = module.workload_iam.cnpg_additional_pod_identity_association_ids[var.cnpg_restore_service_account_name]
+}
+
 output "cnpg_backup_destination_path" {
   description = "GitOps Barman ObjectStore.spec.configuration.destinationPath"
   value       = "s3://${module.s3.bucket_names["db-backups"]}/${var.cnpg_backup_prefix}"
@@ -250,4 +255,24 @@ output "cnpg_backup_service_account" {
     namespace = var.cnpg_namespace
     name      = var.cnpg_service_account_name
   }
+}
+
+output "cnpg_ebs_backup_vault_name" {
+  description = "CNPG EBS Recovery Point를 보관하는 AWS Backup Vault 이름"
+  value       = module.ebs_backup.backup_vault_name
+}
+
+output "cnpg_ebs_backup_plan_id" {
+  description = "CNPG EBS 일일 AWS Backup Plan ID"
+  value       = module.ebs_backup.backup_plan_id
+}
+
+output "cnpg_ebs_backup_role_arn" {
+  description = "CNPG EBS 백업/복원에 사용하는 AWS Backup Role ARN"
+  value       = module.ebs_backup.backup_role_arn
+}
+
+output "cnpg_ebs_backup_tag" {
+  description = "GitOps gp3-cnpg StorageClass와 일치해야 하는 EBS 선택 태그"
+  value       = module.ebs_backup.backup_tag
 }

@@ -38,6 +38,14 @@ resource "aws_backup_vault" "this" {
   force_destroy = false
 }
 
+# Governance Mode Vault Lock. changeable_for_days를 지정하지 않아 Compliance
+# Mode로 전환하지 않으며, 권한 있는 관리자는 구성을 변경할 수 있다. Lock이
+# 활성화된 동안에는 최소 보존기간 전 Recovery Point 직접 삭제를 차단한다.
+resource "aws_backup_vault_lock_configuration" "this" {
+  backup_vault_name  = aws_backup_vault.this.name
+  min_retention_days = var.retention_days
+}
+
 resource "aws_backup_plan" "this" {
   name = "${local.resource_prefix}-daily"
 

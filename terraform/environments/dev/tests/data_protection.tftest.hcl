@@ -55,6 +55,15 @@ run "cnpg_ebs_backup_selects_only_tagged_volumes" {
     condition     = aws_backup_vault.this.force_destroy == false
     error_message = "Recovery Point가 남은 Backup Vault를 강제로 삭제하면 안 됩니다."
   }
+
+  assert {
+    condition = (
+      aws_backup_vault_lock_configuration.this.backup_vault_name == aws_backup_vault.this.name &&
+      aws_backup_vault_lock_configuration.this.min_retention_days == 7 &&
+      aws_backup_vault_lock_configuration.this.changeable_for_days == null
+    )
+    error_message = "Backup Vault는 7일 최소 보존 Governance Lock을 사용해야 합니다."
+  }
 }
 
 run "cnpg_restore_service_account_uses_the_same_s3_role" {

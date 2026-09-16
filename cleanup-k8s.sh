@@ -10,6 +10,11 @@ EXPECTED_AWS_ACCOUNT_ID="297165773875"
 EXPECTED_AWS_REGION="ap-northeast-2"
 EXPECTED_EKS_CLUSTER_NAME="petflow-eks"
 CNPG_NAMESPACE="database"
+CNPG_BACKUP_VAULT_NAME="petflow-dev-cnpg-ebs"
+CNPG_BACKUP_GUARD="${SCRIPT_DIR}/scripts/cnpg-backup-guard.sh"
+DESTROY_RUN_ID="${PETFLOW_DESTROY_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
+DESTROY_EVIDENCE_DIR="${PETFLOW_DESTROY_EVIDENCE_DIR:-${SCRIPT_DIR}/.destroy-evidence}"
+CNPG_BACKUP_MANIFEST="${PETFLOW_CNPG_BACKUP_MANIFEST:-${DESTROY_EVIDENCE_DIR}/${DESTROY_RUN_ID}-cnpg-backups.json}"
 # EBS PVC를 사용하는 모든 DEV Namespace를 추적한다. 이 목록에서 빠진 Namespace는
 # EKS 삭제 전에 PV/EBS 정리를 확인할 수 없어 고아 Volume이 남을 수 있다.
 PERSISTENT_NAMESPACES=("${CNPG_NAMESPACE}" redis kafka jenkins observability)
@@ -18,6 +23,7 @@ EKS_DESCRIBE_ERROR=""
 KUBECTL=()
 TRACKED_PVS=()
 TRACKED_EBS_VOLUMES=()
+TRACKED_CNPG_EBS_VOLUMES=()
 
 cleanup_temp_files() {
   if [[ -n "${TEMP_KUBECONFIG}" && -f "${TEMP_KUBECONFIG}" ]]; then
@@ -126,8 +132,39 @@ track_persistent_storage() {
         TRACKED_EBS_VOLUMES+=("${volume_handle}")
         echo "[cleanup-k8s] EBS Volume 추적: ${volume_handle} (${namespace}/${pvc_name})"
       fi
+
+      if [[ "${namespace}" == "${CNPG_NAMESPACE}" ]] && \
+        ! array_contains "${volume_handle}" "${TRACKED_CNPG_EBS_VOLUMES[@]}"; then
+        TRACKED_CNPG_EBS_VOLUMES+=("${volume_handle}")
+      fi
     done <<< "${pvc_rows}"
   done
+}
+
+capture_cnpg_backup_evidence() {
+  local -a guard_args=(
+    capture
+    --region "${aws_region}"
+    --vault "${CNPG_BACKUP_VAULT_NAME}"
+    --manifest "${CNPG_BACKUP_MANIFEST}"
+  )
+  local volume_id
+
+  for volume_id in "${TRACKED_CNPG_EBS_VOLUMES[@]}"; do
+    guard_args+=(--volume-id "${volume_id}")
+  done
+
+  bash "${CNPG_BACKUP_GUARD}" "${guard_args[@]}"
+}
+
+verify_cnpg_backup_evidence() {
+  local phase="$1"
+
+  bash "${CNPG_BACKUP_GUARD}" verify \
+    --region "${aws_region}" \
+    --vault "${CNPG_BACKUP_VAULT_NAME}" \
+    --manifest "${CNPG_BACKUP_MANIFEST}" \
+    --phase "${phase}"
 }
 
 delete_strimzi_resources() {
@@ -364,6 +401,12 @@ echo "======================================"
 require_command aws
 require_command terraform
 require_command kubectl
+require_command jq
+
+if [[ ! -f "${CNPG_BACKUP_GUARD}" ]]; then
+  echo "[cleanup-k8s] CNPG Backup Guard를 찾을 수 없습니다: ${CNPG_BACKUP_GUARD}" >&2
+  exit 1
+fi
 
 if [[ ! -d "${TERRAFORM_DIR}" ]]; then
   echo "[cleanup-k8s] Terraform 디렉터리를 찾을 수 없습니다: ${TERRAFORM_DIR}" >&2
@@ -422,7 +465,7 @@ if ! aws eks describe-cluster --name "${cluster_name}" --region "${aws_region}" 
   exit 1
 fi
 
-echo "[1/8] Kubernetes API 연결 확인"
+echo "[1/10] Kubernetes API 연결 확인"
 
 TEMP_KUBECONFIG="$(mktemp /tmp/petflow-cleanup-kubeconfig.XXXXXX)"
 aws eks update-kubeconfig --name "${cluster_name}" --region "${aws_region}" --kubeconfig "${TEMP_KUBECONFIG}" >/dev/null
@@ -436,7 +479,13 @@ fi
 
 echo "[cleanup-k8s] Kubernetes API 연결 확인 완료"
 
-echo "[2/8] Argo CD 동기화 중지"
+echo "[2/10] Database/Redis/Kafka/Jenkins/Observability PVC/PV/EBS 추적"
+track_persistent_storage
+
+echo "[3/10] CNPG EBS Backup 사전 Guard"
+capture_cnpg_backup_evidence
+
+echo "[4/10] Argo CD 동기화 중지"
 if "${KUBECTL[@]}" get statefulset argocd-application-controller --namespace argocd >/dev/null 2>&1; then
   "${KUBECTL[@]}" scale statefulset argocd-application-controller --namespace argocd --replicas=0 --timeout=60s
   echo "[cleanup-k8s] Argo CD Application Controller 중지 완료"
@@ -444,7 +493,7 @@ else
   echo "[cleanup-k8s] 실행 중인 Argo CD Application Controller가 없습니다."
 fi
 
-echo "[3/8] Ingress 확인 및 삭제"
+echo "[5/10] Ingress 확인 및 삭제"
 ingress_refs="$("${KUBECTL[@]}" get ingresses --all-namespaces -o jsonpath='{range .items[*]}{.metadata.namespace}{"/"}{.metadata.name}{"\n"}{end}')"
 
 if [[ -z "${ingress_refs}" ]]; then
@@ -459,7 +508,7 @@ else
   done <<< "${ingress_refs}"
 fi
 
-echo "[4/8] LoadBalancer Service 확인 및 삭제"
+echo "[6/10] LoadBalancer Service 확인 및 삭제"
 load_balancer_service_refs="$("${KUBECTL[@]}" get services --all-namespaces -o jsonpath='{range .items[?(@.spec.type=="LoadBalancer")]}{.metadata.namespace}{"/"}{.metadata.name}{"\n"}{end}')"
 
 if [[ -z "${load_balancer_service_refs}" ]]; then
@@ -478,19 +527,20 @@ if [[ -n "${vpc_id}" ]]; then
   verify_no_aws_load_balancers "${vpc_id}" "${aws_region}"
 fi
 
-echo "[5/8] Database/Redis/Kafka/Jenkins/Observability PVC/PV/EBS 추적"
-track_persistent_storage
-
-echo "[6/8] CNPG Resource 정리"
+echo "[7/10] CNPG Resource 정리"
 delete_cnpg_resources
 
-echo "[7/8] Persistent Workload 및 PVC 삭제"
+echo "[8/10] Persistent Workload 및 PVC 삭제"
 delete_persistent_workloads
 delete_persistent_volume_claims
 
-echo "[8/8] Persistent PV/EBS 삭제 확인"
+echo "[9/10] Persistent PV/EBS 삭제 확인"
 verify_persistent_storage_cleanup
+
+echo "[10/10] CNPG EBS Backup 사후 Guard"
+verify_cnpg_backup_evidence "post-pvc-cleanup"
 
 echo "======================================"
 echo " Kubernetes Cleanup Completed"
 echo "======================================"
+echo "[cleanup-k8s] CNPG Backup 증거: ${CNPG_BACKUP_MANIFEST}"

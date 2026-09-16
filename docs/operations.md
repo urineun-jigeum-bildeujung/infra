@@ -181,27 +181,30 @@ AWS_PROFILE=ujibil2 ./alldestroy.sh
 
 ```text
 cleanup-k8s.sh
-  → Argo CD 동기화 중지
-  → Ingress / LoadBalancer Service 삭제
-  → AWS Load Balancer 소멸 확인
-  → Redis / Kafka PVC에서 PV와 EBS Volume ID 추적
-  → Strimzi Resource와 Redis / Kafka Workload 삭제
-  → Redis / Kafka PVC 삭제
-  → 추적한 PV와 EBS Volume 소멸 확인
+  → CNPG PVC → PV → EBS Volume ID 추적
+  → 7일 Governance Vault Lock 확인
+  → EBS별 COMPLETED 온디맨드 Backup/Recovery Point/보존기한 확인
+  → 증거 manifest 저장
+  → Argo CD 동기화 및 AWS 연계 리소스 정리
+  → Persistent Workload/PVC/PV/EBS 삭제 확인
+  → 동일 Recovery Point 유지 확인
 tdestroy.sh
+  → 증거 manifest와 Recovery Point 재검증
   → Terraform 관리 DEV 모듈 삭제
+  → 동일 Recovery Point 유지 확인
 ```
 
-Namespace나 PVC가 이미 없으면 성공으로 처리한다. 반대로 PVC 삭제, PV 삭제 또는 추적한
-EBS Volume 소멸 확인이 실패하면 Cleanup은 오류로 종료되고 Terraform Destroy는 실행되지
-않는다. 역할을 분리할 때는 Windows/WSL에서 Cleanup을 완료하고 VMware에서 Terraform
-Destroy를 실행한다.
+Namespace나 PVC가 이미 없으면 성공으로 처리한다. 반대로 Backup Guard, PVC/PV 삭제 또는
+EBS Volume 소멸 확인이 실패하면 Terraform Destroy는 실행되지 않는다. 역할을 분리할 때는
+Windows/WSL에서 Cleanup을 완료하고 VMware에서 Terraform Destroy를 실행한다. Cleanup이
+생성한 manifest를 안전하게 전달하고 아래 환경 변수에 정확한 경로를 지정해야 한다.
 
 ```bash
 # Windows/WSL + Tailscale ON
 AWS_PROFILE=ujibil2 ./cleanup-k8s.sh
 
 # VMware
+export PETFLOW_CNPG_BACKUP_MANIFEST=/secure/path/run-id-cnpg-backups.json
 AWS_PROFILE=ujibil2 ./tdestroy.sh
 ```
 
@@ -213,6 +216,10 @@ AWS_PROFILE=ujibil2 ./tdestroy.sh
 - `static`, `product-images`, `uploads`, `db-backups` S3 Bucket
 - Tailscale OAuth Secret
 - CNPG AWS Backup Vault/Plan/Selection과 보관 기간 안의 Recovery Point
+
+CNPG Backup Vault는 최소 보존기간 7일의 Governance Lock을 사용한다. Lock이 유지되는 동안
+7일이 지나기 전 Recovery Point 직접 삭제가 거부된다. `backup:DeleteRecoveryPoint` 또는
+`ec2:DeleteSnapshot`을 destroy/검증 목적으로 호출하지 않는다.
 
 ### PV / 고아 EBS 확인
 

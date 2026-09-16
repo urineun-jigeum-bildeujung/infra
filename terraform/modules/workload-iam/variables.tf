@@ -38,6 +38,25 @@ variable "cnpg_service_account_name" {
   }
 }
 
+variable "additional_service_account_names" {
+  description = "같은 S3 백업 Role을 사용할 복원 검증용 추가 CNPG ServiceAccount 목록"
+  type        = set(string)
+  default     = []
+
+  validation {
+    condition = alltrue([
+      for name in var.additional_service_account_names :
+      length(name) <= 253 && can(regex("^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$", name))
+    ])
+    error_message = "추가 ServiceAccount 이름에는 소문자/숫자/점/하이픈만 사용하며 와일드카드를 허용하지 않습니다."
+  }
+
+  validation {
+    condition     = !contains(var.additional_service_account_names, var.cnpg_service_account_name)
+    error_message = "additional_service_account_names에 기본 CNPG ServiceAccount를 중복 지정할 수 없습니다."
+  }
+}
+
 variable "cnpg_backup_prefix" {
   description = "CNPG 백업 객체 접근 범위. 앞뒤 / 및 IAM wildcard 를 허용하지 않는다."
   type        = string

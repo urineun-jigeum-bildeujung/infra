@@ -115,6 +115,21 @@ AWS/EKS 경계를 함께 검증한다.
 7. Pending 부하에서 Karpenter가 Node를 만들고 회수한다.
 8. Monitoring에서 Node/Pod 사용률을 확인할 수 있다.
 
+## CNPG EBS 데이터 보호
+
+Terraform은 `PetflowBackup=petflow-cnpg` 태그가 있는 EBS만 매일 04:00 KST에 AWS Backup
+Vault로 보호하고 Recovery Point를 7일 보관한다. GitOps의 `gp3-cnpg` StorageClass를 통해
+새 PVC에는 태그가 자동으로 붙는다. 기존 `petflow-db` PVC는 최초 1회 dry-run 후 태깅한다.
+
+```bash
+KUBE_CONTEXT=petflow-dev ./scripts/tag-cnpg-ebs.sh
+KUBE_CONTEXT=petflow-dev ./scripts/tag-cnpg-ebs.sh --apply
+```
+
+스크립트는 AWS Account, EKS Endpoint, CNPG Ready 인스턴스, PVC/PV/EBS 소유권 태그를
+확인한 뒤 `database/petflow-db`의 EBS만 처리한다. Jenkins/Kafka/Redis EBS에는 CNPG 백업
+태그를 부여하지 않는다.
+
 ## Redis / Kafka 배포 후 검증
 
 GitOps PR #23이 병합되고 Argo CD가 Sync한 후 Tailscale이 연결된 Windows/WSL에서
@@ -197,6 +212,7 @@ AWS_PROFILE=ujibil2 ./tdestroy.sh
 - Route53 Hosted Zone와 ACM 인증서
 - `static`, `product-images`, `uploads`, `db-backups` S3 Bucket
 - Tailscale OAuth Secret
+- CNPG AWS Backup Vault/Plan/Selection과 보관 기간 안의 Recovery Point
 
 ### PV / 고아 EBS 확인
 

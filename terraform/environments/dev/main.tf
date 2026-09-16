@@ -7,10 +7,15 @@ locals {
   # 기존 tfvars를 사용하는 팀원도 CNPG 백업 Bucket을 빠뜨리지 않도록 root에서 보장한다.
   dev_s3_bucket_purposes = distinct(concat(var.s3_bucket_purposes, ["db-backups"]))
 
-  # CNPG가 ArgoCD bootstrap 직후 사용할 PostgreSQL 기반 이미지 Repository를
-  # 서비스 Repository와 함께 생성한다. 실제 이미지는 tapply.sh가 apply 후 push한다.
-  dev_ecr_repository_names = distinct(concat(var.ecr_repository_names, ["postgresql-pg-bigm"]))
+  # CNPG 기반 이미지와 Web Repository는 오래된 로컬 tfvars에서 빠져 있어도 보존한다.
+  # 실제 PostgreSQL 이미지는 tapply.sh가 apply 후 push한다.
+  dev_ecr_repository_names = distinct(concat(var.ecr_repository_names, [
+    "postgresql-pg-bigm",
+    "web",
+  ]))
 }
+
+data "aws_caller_identity" "current" {}
 
 # DEV 리전에서 이후 생성되는 모든 EBS(PVC 및 Worker Root Volume)를 기본 암호화한다.
 # 기존 Volume은 제자리 암호화되지 않으며 다음 재생성부터 AWS 관리형 aws/ebs Key가 적용된다.
@@ -143,4 +148,25 @@ module "workload_iam" {
   cnpg_namespace            = var.cnpg_namespace
   cnpg_service_account_name = var.cnpg_service_account_name
   cnpg_backup_prefix        = var.cnpg_backup_prefix
+
+  # 운영 DB와 분리된 복원 검증 Cluster도 같은 cnpg/ prefix를 읽을 수 있게 한다.
+  additional_service_account_names = [
+    var.cnpg_restore_service_account_name,
+  ]
+}
+
+# Petflow CNPG EBS만 태그로 선택해 일일 Recovery Point를 생성한다.
+# 현재 PVC는 운영 절차에서 한 번 태그하고, 새 PVC는 GitOps gp3-cnpg StorageClass가
+# 같은 태그를 생성 시점에 자동으로 부여한다.
+module "ebs_backup" {
+  source = "../../modules/ebs-backup"
+
+  project_name     = var.project_name
+  environment      = var.environment
+  aws_region       = var.aws_region
+  aws_account_id   = data.aws_caller_identity.current.account_id
+  backup_tag_key   = var.cnpg_ebs_backup_tag_key
+  backup_tag_value = var.cnpg_ebs_backup_tag_value
+  schedule         = var.cnpg_ebs_snapshot_schedule
+  retention_days   = var.cnpg_ebs_snapshot_retention_days
 }

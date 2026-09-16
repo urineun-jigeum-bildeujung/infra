@@ -182,10 +182,50 @@ variable "cnpg_service_account_name" {
   default     = "petflow-db"
 }
 
+variable "cnpg_restore_service_account_name" {
+  description = "S3 백업에서 복원 검증할 CNPG Cluster ServiceAccount 이름"
+  type        = string
+  default     = "petflow-db-restore"
+
+  validation {
+    condition     = var.cnpg_restore_service_account_name != var.cnpg_service_account_name
+    error_message = "복원 ServiceAccount는 운영 CNPG ServiceAccount와 달라야 합니다."
+  }
+}
+
 variable "cnpg_backup_prefix" {
   description = "db-backups 안의 CNPG 전용 prefix. 앞뒤 / 는 포함하지 않는다."
   type        = string
   default     = "cnpg"
+}
+
+variable "cnpg_ebs_backup_tag_key" {
+  description = "AWS Backup이 CNPG EBS만 선택할 때 사용하는 태그 Key"
+  type        = string
+  default     = "PetflowBackup"
+}
+
+variable "cnpg_ebs_backup_tag_value" {
+  description = "GitOps gp3-cnpg StorageClass와 일치해야 하는 태그 Value"
+  type        = string
+  default     = "petflow-cnpg"
+}
+
+variable "cnpg_ebs_snapshot_schedule" {
+  description = "CNPG EBS 일일 Snapshot 일정(AWS Backup UTC cron)"
+  type        = string
+  default     = "cron(0 19 * * ? *)"
+}
+
+variable "cnpg_ebs_snapshot_retention_days" {
+  description = "CNPG EBS Recovery Point 보관 일수"
+  type        = number
+  default     = 7
+
+  validation {
+    condition     = var.cnpg_ebs_snapshot_retention_days >= 1 && floor(var.cnpg_ebs_snapshot_retention_days) == var.cnpg_ebs_snapshot_retention_days
+    error_message = "cnpg_ebs_snapshot_retention_days는 1 이상의 정수여야 합니다."
+  }
 }
 
 variable "ecr_repository_names" {

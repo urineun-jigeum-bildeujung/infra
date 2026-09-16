@@ -17,6 +17,9 @@ tfplan
 backend.hcl
 !backend.hcl.example
 
+# 로컬 데이터 보호 검증 스택 (공용 DEV 승격 코드에는 포함하지 않음)
+/terraform/environments/dev-data-test-aa/
+
 # 환경 변수 및 Secret
 .env
 .env.*

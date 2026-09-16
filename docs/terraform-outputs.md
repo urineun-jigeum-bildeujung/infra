@@ -99,6 +99,11 @@ S3 Map key는 `static`, `product-images`, `uploads`, `db-backups`다.
 | `cnpg_backup_role_arn` | CNPG S3 Backup 권한 확인 |
 | `cnpg_backup_destination_path` | Barman ObjectStore 경로 |
 | `cnpg_backup_service_account` | CNPG Pod Identity 계약 |
+| `cnpg_restore_pod_identity_association_id` | 온디맨드 복원 Cluster Pod Identity 확인 |
+| `cnpg_ebs_backup_vault_name` | CNPG EBS Recovery Point Vault |
+| `cnpg_ebs_backup_plan_id` | 일일 EBS Backup Plan 확인 |
+| `cnpg_ebs_backup_role_arn` | AWS Backup/Restore Service Role 확인 |
+| `cnpg_ebs_backup_tag` | GitOps `gp3-cnpg`와 공유하는 EBS 선택 태그 |
 
 ## Tailscale Router
 

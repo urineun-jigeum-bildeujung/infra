@@ -81,6 +81,13 @@ cnpg_namespace            = "database"
 cnpg_service_account_name = "petflow-db" # 기본 CNPG ServiceAccount 이름 = Cluster.metadata.name
 cnpg_backup_prefix        = "cnpg"       # ObjectStore destinationPath: s3://petflow-dev-db-backups/cnpg
 
+# 복원 검증 Cluster와 CNPG 전용 EBS Backup 계약
+cnpg_restore_service_account_name   = "petflow-db-restore"
+cnpg_ebs_backup_tag_key             = "PetflowBackup"
+cnpg_ebs_backup_tag_value           = "petflow-cnpg" # GitOps gp3-cnpg와 반드시 일치
+cnpg_ebs_snapshot_schedule          = "cron(0 19 * * ? *)" # 매일 04:00 KST
+cnpg_ebs_snapshot_retention_days    = 7
+
 # =============================================================================
 # ECR
 # =============================================================================

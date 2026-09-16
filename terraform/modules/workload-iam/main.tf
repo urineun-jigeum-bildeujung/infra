@@ -25,6 +25,15 @@ resource "aws_eks_pod_identity_association" "cnpg_backup" {
   role_arn        = aws_iam_role.cnpg_backup.arn
 }
 
+resource "aws_eks_pod_identity_association" "cnpg_backup_additional" {
+  for_each = var.additional_service_account_names
+
+  cluster_name    = var.cluster_name
+  namespace       = var.cnpg_namespace
+  service_account = each.value
+  role_arn        = aws_iam_role.cnpg_backup.arn
+}
+
 data "aws_iam_policy_document" "cnpg_backup" {
   # HeadBucket 에는 s3:prefix 가 없으므로 전용 버킷의 목록 조회는 버킷 단위 허용.
   statement {

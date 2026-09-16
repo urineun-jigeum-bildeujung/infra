@@ -7,6 +7,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TERRAFORM_DIR="${SCRIPT_DIR}/terraform/environments/dev"
 EXPECTED_AWS_ACCOUNT_ID="297165773875"
+EXPECTED_AWS_REGION="ap-northeast-2"
 
 require_command() {
   local command_name="$1"
@@ -15,6 +16,36 @@ require_command() {
     echo "[tdestroy] ${command_name} 명령이 필요합니다." >&2
     exit 1
   fi
+}
+
+report_orphan_ebs() {
+  local aws_region="$1"
+  local orphan_count
+
+  echo "[tdestroy] 고아 EBS 후보 조회(읽기 전용)"
+  orphan_count="$(aws ec2 describe-volumes \
+    --region "${aws_region}" \
+    --filters \
+      "Name=status,Values=available" \
+      "Name=tag:KubernetesCluster,Values=petflow-eks" \
+    --query 'length(Volumes[?length(Attachments)==`0`])' \
+    --output text)"
+
+  if [[ "${orphan_count}" == "0" ]]; then
+    echo "[tdestroy] available/미연결 고아 EBS 후보가 없습니다."
+    return
+  fi
+
+  aws ec2 describe-volumes \
+    --region "${aws_region}" \
+    --filters \
+      "Name=status,Values=available" \
+      "Name=tag:KubernetesCluster,Values=petflow-eks" \
+    --query 'Volumes[?length(Attachments)==`0`].{VolumeId:VolumeId,Namespace:Tags[?Key==`kubernetes.io/created-for/pvc/namespace`].Value|[0],PVC:Tags[?Key==`kubernetes.io/created-for/pvc/name`].Value|[0],SizeGiB:Size,Created:CreateTime}' \
+    --output table
+
+  echo "[tdestroy] 고아 EBS 후보 ${orphan_count}개를 자동 삭제하지 않았습니다."
+  echo "[tdestroy] 데이터 보존 여부와 현재 PV 미참조를 별도로 확인한 뒤 명시적으로 정리해주세요."
 }
 
 echo "======================================"
@@ -61,6 +92,12 @@ vpc_id="$(terraform output -raw vpc_id 2>/dev/null || true)"
 aws_region="$(terraform output -raw aws_region 2>/dev/null || true)"
 
 if [[ -n "${vpc_id}" && -n "${aws_region}" ]]; then
+  if [[ "${aws_region}" != "${EXPECTED_AWS_REGION}" ]]; then
+    echo "[tdestroy] 잘못된 AWS Region입니다: ${aws_region}" >&2
+    echo "[tdestroy] 예상 Region: ${EXPECTED_AWS_REGION}" >&2
+    exit 1
+  fi
+
   v2_load_balancer_count="$(aws elbv2 describe-load-balancers --region "${aws_region}" --query "length(LoadBalancers[?VpcId=='${vpc_id}'])" --output text)"
   classic_load_balancer_count="$(aws elb describe-load-balancers --region "${aws_region}" --query "length(LoadBalancerDescriptions[?VPCId=='${vpc_id}'])" --output text)"
 
@@ -83,6 +120,12 @@ destroy_targets=(
 
 echo "[2/2] Terraform Destroy 실행"
 terraform destroy --auto-approve -input=false "${destroy_targets[@]}"
+
+if [[ -n "${aws_region}" ]]; then
+  report_orphan_ebs "${aws_region}"
+else
+  echo "[tdestroy] AWS Region을 확인하지 못해 고아 EBS 후보 보고를 건너뜁니다." >&2
+fi
 
 echo "======================================"
 echo " Terraform Destroy Completed"

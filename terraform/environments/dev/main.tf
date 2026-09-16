@@ -12,6 +12,17 @@ locals {
   dev_ecr_repository_names = distinct(concat(var.ecr_repository_names, ["postgresql-pg-bigm"]))
 }
 
+# DEV 리전에서 이후 생성되는 모든 EBS(PVC 및 Worker Root Volume)를 기본 암호화한다.
+# 기존 Volume은 제자리 암호화되지 않으며 다음 재생성부터 AWS 관리형 aws/ebs Key가 적용된다.
+# tdestroy.sh는 모듈만 targeted destroy하므로 이 계정/리전 정책은 재구축 사이에도 유지된다.
+resource "aws_ebs_encryption_by_default" "dev" {
+  enabled = true
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
 module "network" {
   source = "../../modules/network"
 

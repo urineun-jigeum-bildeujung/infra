@@ -10,7 +10,9 @@ EXPECTED_AWS_ACCOUNT_ID="297165773875"
 EXPECTED_AWS_REGION="ap-northeast-2"
 EXPECTED_EKS_CLUSTER_NAME="petflow-eks"
 CNPG_NAMESPACE="database"
-PERSISTENT_NAMESPACES=("${CNPG_NAMESPACE}" redis kafka)
+# EBS PVC를 사용하는 모든 DEV Namespace를 추적한다. 이 목록에서 빠진 Namespace는
+# EKS 삭제 전에 PV/EBS 정리를 확인할 수 없어 고아 Volume이 남을 수 있다.
+PERSISTENT_NAMESPACES=("${CNPG_NAMESPACE}" redis kafka jenkins observability)
 TEMP_KUBECONFIG=""
 EKS_DESCRIBE_ERROR=""
 KUBECTL=()
@@ -476,17 +478,17 @@ if [[ -n "${vpc_id}" ]]; then
   verify_no_aws_load_balancers "${vpc_id}" "${aws_region}"
 fi
 
-echo "[5/8] Database/Redis/Kafka PVC/PV/EBS 추적"
+echo "[5/8] Database/Redis/Kafka/Jenkins/Observability PVC/PV/EBS 추적"
 track_persistent_storage
 
 echo "[6/8] CNPG Resource 정리"
 delete_cnpg_resources
 
-echo "[7/8] Database/Redis/Kafka Workload 및 PVC 삭제"
+echo "[7/8] Persistent Workload 및 PVC 삭제"
 delete_persistent_workloads
 delete_persistent_volume_claims
 
-echo "[8/8] Database/Redis/Kafka PV/EBS 삭제 확인"
+echo "[8/8] Persistent PV/EBS 삭제 확인"
 verify_persistent_storage_cleanup
 
 echo "======================================"

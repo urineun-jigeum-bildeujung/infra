@@ -249,10 +249,32 @@ objectstores.barmancloud.cnpg.io	objectstores.barmancloud.cnpg.io	ObjectStore
 CNPG_RESOURCES
 }
 
+delete_alloy_resources() {
+  local crd_resource
+
+  if ! namespace_exists observability; then
+    return 0
+  fi
+
+  if ! crd_resource="$("${KUBECTL[@]}" get crd alloys.collectors.grafana.com \
+    --ignore-not-found -o name)"; then
+    echo "[cleanup-k8s] Alloy CRD 존재 여부를 확인하지 못했습니다." >&2
+    return 1
+  fi
+
+  if [[ -n "${crd_resource}" ]]; then
+    # Operator가 살아 있을 때 CR의 finalizer 정리를 먼저 완료한다.
+    echo "[cleanup-k8s] Alloy Resource 삭제 (Operator 삭제 전)"
+    "${KUBECTL[@]}" delete alloys.collectors.grafana.com --all \
+      --namespace observability --ignore-not-found --wait=true --timeout=10m
+  fi
+}
+
 delete_persistent_workloads() {
   local namespace
 
   delete_strimzi_resources
+  delete_alloy_resources
 
   for namespace in "${PERSISTENT_NAMESPACES[@]}"; do
     if ! namespace_exists "${namespace}"; then

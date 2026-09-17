@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# Terraform DEV 인프라부터 ALB Controller, GitOps, Web ALB까지 순서대로 복구한다.
+# Terraform DEV 인프라부터 GitOps, ALB Controller, Web ALB까지 순서대로 복구한다.
 #
 # 사용:
 #   ./tplan.sh
-#   GITOPS_DIR=/home/user1/project/tong-p/gitops \
 #   AWS_PROFILE=ujibil2 \
 #     ./trestore.sh
 #
+# GitOps가 기본 위치(../gitops)가 아니면 GITOPS_DIR로 재정의한다.
+#
 # Route53 Alias와 공개 HTTPS까지 자동 복구하려면 명시적으로 활성화한다.
-#   APPLY_WEB_DNS=true GITOPS_DIR=... AWS_PROFILE=ujibil2 ./trestore.sh
+#   APPLY_WEB_DNS=true AWS_PROFILE=ujibil2 ./trestore.sh
 
 set -euo pipefail
 
@@ -22,7 +23,7 @@ WEB_INGRESS_NAMESPACE="web"
 WEB_INGRESS_NAME="generic-service"
 WEB_ALB_NAME="petflow-dev-public"
 APPLY_WEB_DNS="${APPLY_WEB_DNS:-false}"
-GITOPS_DIR="${GITOPS_DIR:-}"
+GITOPS_DIR="${GITOPS_DIR:-${SCRIPT_DIR}/../gitops}"
 TEMP_DNS_PLAN=""
 
 cleanup() {
@@ -143,8 +144,8 @@ validate_gitops_checkout() {
   local local_head
   local remote_head
 
-  [[ -n "${GITOPS_DIR}" ]] || fail "GITOPS_DIR 환경변수로 GitOps 저장소 경로를 지정해주세요."
   [[ -d "${GITOPS_DIR}" ]] || fail "GitOps 경로를 찾을 수 없습니다: ${GITOPS_DIR}"
+  [[ -f "${GITOPS_DIR}/Taskfile.yml" ]] || fail "GitOps Taskfile을 찾을 수 없습니다: ${GITOPS_DIR}/Taskfile.yml"
 
   git_root="$(git -C "${GITOPS_DIR}" rev-parse --show-toplevel 2>/dev/null || true)"
   [[ "${git_root}" == "$(cd "${GITOPS_DIR}" && pwd)" ]] \
@@ -169,6 +170,84 @@ validate_gitops_checkout() {
     || fail "GitOps main이 origin/main 최신 상태가 아닙니다. 스크립트는 자동 pull하지 않습니다."
 
   log "GitOps Checkout Guard 통과: ${GITOPS_DIR}@${local_head:0:12}"
+}
+
+diagnose_alb_controller() {
+  log "AWS Load Balancer Controller 진단 정보를 출력합니다."
+  kubectl --context "${KUBECONFIG_CONTEXT}" --namespace argocd \
+    get application cert-manager aws-load-balancer-controller -o yaml >&2 || true
+  kubectl --context "${KUBECONFIG_CONTEXT}" --namespace kube-system \
+    get deployment,pod,service,endpoints \
+    --selector app.kubernetes.io/name=aws-load-balancer-controller -o wide >&2 || true
+  kubectl --context "${KUBECONFIG_CONTEXT}" --namespace kube-system \
+    get certificate,issuer -o wide >&2 || true
+  kubectl --context "${KUBECONFIG_CONTEXT}" --namespace "${WEB_INGRESS_NAMESPACE}" \
+    describe ingress "${WEB_INGRESS_NAME}" >&2 || true
+  kubectl --context "${KUBECONFIG_CONTEXT}" --namespace kube-system \
+    logs deployment/aws-load-balancer-controller --tail=200 >&2 || true
+}
+
+wait_for_alb_controller() {
+  local deadline
+  local sync_status
+  local health_status
+  local cert_manager_sync_status
+  local cert_manager_health_status
+  local desired_count
+  local available_count
+  local certificate_count
+  local ready_certificate_count
+  local webhook_endpoint_count
+
+  deadline=$(($(date +%s) + 900))
+  while (( $(date +%s) < deadline )); do
+    sync_status="$(kubectl --context "${KUBECONFIG_CONTEXT}" \
+      --namespace argocd get application aws-load-balancer-controller \
+      -o jsonpath='{.status.sync.status}' 2>/dev/null || true)"
+    health_status="$(kubectl --context "${KUBECONFIG_CONTEXT}" \
+      --namespace argocd get application aws-load-balancer-controller \
+      -o jsonpath='{.status.health.status}' 2>/dev/null || true)"
+    cert_manager_sync_status="$(kubectl --context "${KUBECONFIG_CONTEXT}" \
+      --namespace argocd get application cert-manager \
+      -o jsonpath='{.status.sync.status}' 2>/dev/null || true)"
+    cert_manager_health_status="$(kubectl --context "${KUBECONFIG_CONTEXT}" \
+      --namespace argocd get application cert-manager \
+      -o jsonpath='{.status.health.status}' 2>/dev/null || true)"
+    desired_count="$(kubectl --context "${KUBECONFIG_CONTEXT}" \
+      --namespace kube-system get deployment aws-load-balancer-controller \
+      -o jsonpath='{.spec.replicas}' 2>/dev/null || true)"
+    available_count="$(kubectl --context "${KUBECONFIG_CONTEXT}" \
+      --namespace kube-system get deployment aws-load-balancer-controller \
+      -o jsonpath='{.status.availableReplicas}' 2>/dev/null || true)"
+    certificate_count="$(kubectl --context "${KUBECONFIG_CONTEXT}" \
+      --namespace kube-system get certificate \
+      --selector app.kubernetes.io/name=aws-load-balancer-controller -o json 2>/dev/null \
+      | jq '.items | length' || printf '0')"
+    ready_certificate_count="$(kubectl --context "${KUBECONFIG_CONTEXT}" \
+      --namespace kube-system get certificate \
+      --selector app.kubernetes.io/name=aws-load-balancer-controller -o json 2>/dev/null \
+      | jq '[.items[] | select(any(.status.conditions[]?; .type == "Ready" and .status == "True"))] | length' \
+      || printf '0')"
+    webhook_endpoint_count="$(kubectl --context "${KUBECONFIG_CONTEXT}" \
+      --namespace kube-system get endpoints aws-load-balancer-webhook-service -o json 2>/dev/null \
+      | jq '[.subsets[]?.addresses[]?] | length' || printf '0')"
+
+    if [[ "${sync_status}" == "Synced" && "${health_status}" == "Healthy" \
+      && "${cert_manager_sync_status}" == "Synced" && "${cert_manager_health_status}" == "Healthy" \
+      && "${desired_count}" =~ ^[1-9][0-9]*$ && "${available_count}" == "${desired_count}" \
+      && "${certificate_count}" =~ ^[1-9][0-9]*$ \
+      && "${ready_certificate_count}" == "${certificate_count}" \
+      && "${webhook_endpoint_count}" =~ ^[1-9][0-9]*$ ]]; then
+      log "AWS Load Balancer Controller GitOps 준비 완료: available=${available_count}/${desired_count}, certificates=${ready_certificate_count}/${certificate_count}, webhookEndpoints=${webhook_endpoint_count}"
+      return
+    fi
+
+    log "Controller GitOps 준비 대기 중: controller=${sync_status:-unknown}/${health_status:-unknown}, certManager=${cert_manager_sync_status:-unknown}/${cert_manager_health_status:-unknown}, available=${available_count:-0}/${desired_count:-0}, certificates=${ready_certificate_count:-0}/${certificate_count:-0}, webhookEndpoints=${webhook_endpoint_count:-0}"
+    sleep 10
+  done
+
+  diagnose_alb_controller
+  fail "AWS Load Balancer Controller가 제한 시간 내 Synced/Healthy/Available 상태가 되지 않았습니다."
 }
 
 wait_for_web_alb() {
@@ -198,6 +277,7 @@ wait_for_web_alb() {
     sleep 10
   done
 
+  diagnose_alb_controller
   fail "Web Ingress ADDRESS 또는 ALB active 확인 시간이 초과됐습니다."
 }
 
@@ -256,6 +336,7 @@ verify_target_health() {
     sleep 10
   done
 
+  diagnose_alb_controller
   fail "ALB Target이 제한 시간 내 healthy가 되지 않았습니다."
 }
 
@@ -319,7 +400,7 @@ verify_public_web() {
   fail "leechs.shop 공개 HTTP/HTTPS 검증 시간이 초과됐습니다."
 }
 
-for command_name in aws terraform kubectl helm task git gh jq curl; do
+for command_name in aws terraform kubectl helm task git jq curl; do
   require_command "${command_name}"
 done
 
@@ -357,14 +438,14 @@ wait_for_eks_readyz
 log "[3/8] Worker Node Ready 대기"
 wait_for_worker_nodes "${cluster_name}" "${node_group_name}" "${aws_region}"
 
-log "[4/8] AWS Load Balancer Controller 설치/업그레이드"
-"${SCRIPT_DIR}/scripts/install-alb-controller.sh"
-
-log "[5/8] GitOps Bootstrap"
+log "[4/8] GitOps Bootstrap"
 (
   cd "${GITOPS_DIR}"
-  task bootstrap
+  task bootstrap:core
 )
+
+log "[5/8] AWS Load Balancer Controller GitOps Sync와 Ready 대기"
+wait_for_alb_controller
 
 log "[6/8] Web Ingress와 ALB active 대기"
 wait_for_web_alb "${aws_region}"

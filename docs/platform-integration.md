@@ -7,11 +7,11 @@
 | 영역 | Infra(Terraform) | GitOps / CN |
 |---|---|---|
 | Karpenter | IAM, EKS Access Entry, Private Subnet/SG Discovery Tag | Helm, EC2NodeClass, NodePool |
-| AWS Load Balancer Controller | IAM, Pod Identity Association, Subnet Tag, Helm 설치 인터페이스 | Ingress |
+| AWS Load Balancer Controller | IAM, Pod Identity Association, Subnet/VPC Tag | Helm Release, ServiceAccount, CRD/Webhook, Ingress |
 
-Terraform은 Controller의 AWS 권한 기반을 관리하고, Infra 저장소의 설치 스크립트가
-AWS Load Balancer Controller Helm Release를 관리한다. ALB 자체는 Kubernetes Ingress를
-감시하는 Controller가 생성한다. Karpenter Helm은 계속 GitOps 범위다.
+Terraform은 Controller의 AWS 권한과 네트워크 기반을 관리하고, GitOps가 AWS Load Balancer
+Controller Helm Release와 Kubernetes 리소스를 관리한다. ALB 자체는 Kubernetes Ingress를
+감시하는 Controller가 생성한다. Karpenter Helm도 계속 GitOps 범위다.
 
 ## Karpenter 전달 값
 
@@ -63,23 +63,27 @@ Internet-facing ALB는 Public Subnet, internal ALB는 Private Subnet을 선택�
 
 ### Controller 설치/업그레이드
 
-Terraform apply로 IAM Role, Policy, Pod Identity가 준비된 뒤 프로젝트 루트에서 실행한다.
+Terraform apply로 IAM Role, Policy, Pod Identity, VPC 태그가 준비되면 GitOps 저장소의
+`platform/10-aws-load-balancer-controller/application.yaml`이 Helm Release를 관리한다.
+클러스터 전체 재구축 시에는 GitOps `main` 최신 상태에서 다음을 실행한다.
 
 ```bash
-AWS_PROFILE=ujibil2 ./scripts/install-alb-controller.sh
+task bootstrap:core
 ```
 
-스크립트는 Terraform output에서 Cluster Name, Region, VPC ID를 읽으며 다음 작업을 수행한다.
+GitOps Application은 다음 계약을 사용한다.
 
-1. `kube-system/aws-load-balancer-controller` Pod Identity Association 확인
-2. 고정된 Helm Chart `3.5.0`의 CRD 적용
-3. Helm Release 설치 또는 업그레이드
-4. Deployment rollout 및 Pod 상태 확인
+1. 고정 Helm Chart `3.5.0`과 `kube-system/aws-load-balancer-controller` ServiceAccount
+2. EKS Pod Identity 사용, IRSA Role ARN annotation 미사용
+3. `Project=petflow`, `Environment=dev`, `Name=petflow-vpc` 태그로 VPC 동적 탐색
+4. cert-manager를 통한 Webhook TLS 발급과 갱신
+5. Argo CD automated sync, prune, self-heal 및 Server-Side Apply
 
-Helm values는 `kubernetes/alb-controller/values-dev.yaml`에서 관리한다. 기존
-`ingress-nginx` LoadBalancer Service에 영향을 주지 않도록 Service mutator webhook은
-비활성화하고, `ingressClassName: alb`인 Ingress만 ALB 대상으로 사용한다.
-Helm upgrade 중 webhook CA 불일치를 막기 위해 기존 TLS Secret을 재사용한다.
+`trestore.sh`는 GitOps bootstrap 뒤 Controller와 cert-manager Application `Synced/Healthy`,
+Deployment Available, Certificate Ready와 Webhook Endpoint를 조건 기반으로 기다린다. `scripts/install-alb-controller.sh`와
+`kubernetes/alb-controller/values-dev.yaml`은 GitOps 장애 시의 비상 수동 복구용이며 정상
+복구에서는 실행하지 않는다. GitOps Application이 존재하면 스크립트는 기본적으로 거부하며,
+명시적인 `ALLOW_ALB_CONTROLLER_BREAK_GLASS=true`에만 비상 실행한다.
 
 ## Terraform Output
 

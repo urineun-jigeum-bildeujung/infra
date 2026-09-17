@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
-# Terraform이 준비한 Pod Identity를 사용해 AWS Load Balancer Controller를 설치/업그레이드한다.
+# GitOps/Argo CD 장애 시에만 사용하는 AWS Load Balancer Controller 비상 복구 도구다.
+# 정상 복구는 GitOps의 platform/10-aws-load-balancer-controller Application이 담당하며,
+# trestore.sh는 이 스크립트를 호출하지 않는다.
 #
-# 사용:
-#   AWS_PROFILE=ujibil2 ./scripts/install-alb-controller.sh
+# 비상 사용:
+#   ALLOW_ALB_CONTROLLER_BREAK_GLASS=true \
+#   AWS_PROFILE=ujibil2 \
+#     ./scripts/install-alb-controller.sh
 
 set -euo pipefail
 
@@ -16,6 +20,7 @@ NAMESPACE="kube-system"
 SERVICE_ACCOUNT="aws-load-balancer-controller"
 TEMP_KUBECONFIG=""
 HELM_CONFLICT_ARGS=()
+BREAK_GLASS="${ALLOW_ALB_CONTROLLER_BREAK_GLASS:-false}"
 
 cleanup() {
   if [[ -n "${TEMP_KUBECONFIG}" && -f "${TEMP_KUBECONFIG}" ]]; then
@@ -30,6 +35,11 @@ for command_name in aws terraform kubectl helm; do
     exit 1
   fi
 done
+
+case "${BREAK_GLASS}" in
+  true|false) ;;
+  *) echo "[alb-controller] ALLOW_ALB_CONTROLLER_BREAK_GLASS는 true 또는 false여야 합니다." >&2; exit 1 ;;
+esac
 
 if ! aws sts get-caller-identity >/dev/null 2>&1; then
   echo "[alb-controller] AWS 인증 정보를 확인해주세요."
@@ -60,6 +70,20 @@ aws eks update-kubeconfig \
   --region "${aws_region}" \
   --kubeconfig "${TEMP_KUBECONFIG}" \
   --alias petflow-dev >/dev/null
+
+if kubectl --kubeconfig "${TEMP_KUBECONFIG}" \
+  --namespace argocd get application aws-load-balancer-controller >/dev/null 2>&1; then
+  if [[ "${BREAK_GLASS}" != "true" ]]; then
+    echo "[alb-controller] ERROR: AWS Load Balancer Controller는 Argo CD가 관리 중입니다." >&2
+    echo "[alb-controller] ERROR: 비상 실행에는 ALLOW_ALB_CONTROLLER_BREAK_GLASS=true가 필요합니다." >&2
+    exit 1
+  fi
+fi
+
+if [[ "${BREAK_GLASS}" == "true" ]]; then
+  echo "[alb-controller] WARNING: Break-glass 수동 Helm 복구를 실행합니다." >&2
+  echo "[alb-controller] WARNING: GitOps와 동시에 Controller를 관리하지 마세요." >&2
+fi
 
 helm repo add eks https://aws.github.io/eks-charts --force-update >/dev/null
 helm repo update eks >/dev/null

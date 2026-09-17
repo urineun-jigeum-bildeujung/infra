@@ -73,10 +73,10 @@ infra/
 │     └─ dev/                # DEV 환경: 위 모듈들을 조립
 │
 ├─ kubernetes/
-│  ├─ alb-controller/        # AWS Load Balancer Controller Helm values
+│  ├─ alb-controller/        # 비상 수동 복구용 AWS Load Balancer Controller Helm values
 │  └─ tests/                 # 임시 HTTPS End-to-End 테스트 manifest
 ├─ scripts/
-│  ├─ install-alb-controller.sh
+│  ├─ install-alb-controller.sh  # GitOps 장애 시에만 쓰는 비상 수동 복구
 │  └─ https-test.sh
 │
 ├─ tinit.sh                  # 프로젝트 루트에서 실행하는 편의 스크립트 (dev 대상)
@@ -120,6 +120,7 @@ terraform/environments/
 - **Terraform 1.10 이상** — S3 Backend native locking (`use_lockfile = true`) 사용을 위해 필요
 - **AWS CLI v2** — `aws sts get-caller-identity` 로 자격 증명 확인 가능해야 함
 - **Bash** — Linux / macOS / WSL. 스크립트는 실행 비트가 이미 `git` 에 등록되어 있어 별도 `chmod +x` 불필요
+- **Go Task v3** — `trestore.sh`의 GitOps core bootstrap 실행에 필요 (`task --version`으로 확인)
 
 AWS 자격 증명은 **절대 Repository 에 커밋하지 않고**, 로컬에서 AWS CLI Profile / IAM Role / SSO / 환경변수 중 편한 방법으로 구성한다.
 
@@ -153,6 +154,7 @@ unzip awscliv2.zip && sudo ./aws/install
 
 terraform version   # 1.10.x 이상 확인
 aws --version
+task --version      # v3 이상 확인
 ```
 
 `cleanup-k8s.sh`와 `alldestroy.sh`를 실행하는 환경에는 `kubectl`이 설치되어 있고 Tailscale을 통해 EKS Private API에 접근할 수 있어야 한다.

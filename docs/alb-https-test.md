@@ -20,11 +20,16 @@ Client → Route53 → ALB(HTTPS/ACM) → Ingress → Service → nginx Pod
 - leechs.shop, *.leechs.shop ACM 인증서가 ISSUED
 - Terraform DEV Backend 초기화 및 output 조회 가능
 
-Controller가 없으면 먼저 설치한다.
+Controller가 없으면 GitOps `main` 최신 상태에서 먼저 bootstrap한다.
 
 ~~~bash
-AWS_PROFILE=ujibil2 ./scripts/install-alb-controller.sh
+cd /home/user1/project/tong-p/gitops
+task bootstrap:core
+kubectl get application aws-load-balancer-controller -n argocd
 ~~~
+
+`scripts/install-alb-controller.sh`는 GitOps 장애 시에만 사용하는 비상 복구 도구다.
+Argo CD Application과 수동 Helm 설치로 같은 Controller를 동시에 관리하지 않는다.
 
 ## 테스트 배포
 
@@ -64,7 +69,7 @@ AWS_PROFILE=ujibil2 ./scripts/https-test.sh cleanup
 - Route53 Hosted Zone과 ACM Validation Record
 - ACM 인증서
 - AWS Load Balancer Controller IAM/Pod Identity
-- AWS Load Balancer Controller Helm Release
+- AWS Load Balancer Controller Argo CD Application과 리소스
 
 ## 2026-09-10 실제 검증 결과
 

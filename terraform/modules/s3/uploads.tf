@@ -59,9 +59,8 @@ resource "aws_cloudfront_distribution" "uploads" {
     origin_id                = "uploads-s3"
     origin_access_control_id = aws_cloudfront_origin_access_control.uploads[0].id
 
-    s3_origin_config {
-      origin_access_identity = ""
-    }
+    # OAC만 지정한다. Provider가 AWS 요청에 필요한 빈 S3OriginConfig를 자동 생성한다.
+    # 빈 s3_origin_config를 명시하면 AWS Provider 5.100.0의 refresh 때 생략되어 반복 diff가 발생한다.
   }
 
   default_cache_behavior {
@@ -102,7 +101,7 @@ resource "aws_cloudfront_distribution" "uploads" {
     precondition {
       condition = (
         var.uploads_custom_domain_name == null && var.uploads_cloudfront_certificate_arn == null
-      ) || (
+        ) || (
         var.uploads_custom_domain_name != null && var.uploads_cloudfront_certificate_arn != null
       )
       error_message = "CloudFront 이미지 도메인과 us-east-1 ACM 인증서는 함께 지정해야 합니다."

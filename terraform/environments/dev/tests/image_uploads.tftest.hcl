@@ -71,10 +71,11 @@ run "pending_expiration_and_private_cdn" {
       alltrue([
         for origin in aws_cloudfront_distribution.uploads[0].origin :
         origin.domain_name == aws_s3_bucket.app["uploads"].bucket_regional_domain_name &&
-        origin.origin_access_control_id == aws_cloudfront_origin_access_control.uploads[0].id
+        origin.origin_access_control_id == aws_cloudfront_origin_access_control.uploads[0].id &&
+        length(origin.s3_origin_config) == 0
       ])
     )
-    error_message = "CloudFront는 S3 REST origin에 OAC 서명으로 접근하고 읽기 전용 HTTPS 경로를 제공해야 합니다."
+    error_message = "CloudFront는 빈 s3_origin_config 없이 OAC로 S3 REST origin에 접근하고 읽기 전용 HTTPS 경로를 제공해야 합니다."
   }
 
   assert {

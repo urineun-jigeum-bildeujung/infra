@@ -190,6 +190,11 @@ resource "aws_eks_addon" "kube_proxy" {
 resource "aws_eks_addon" "vpc_cni" {
   cluster_name = aws_eks_cluster.main.name
   addon_name   = "vpc-cni"
+  # 정책 집행 기능만 활성화한다. 실제 Ingress/Egress 정책은 GitOps에서 관리한다.
+  # 기본 standard 모드를 유지하며, 허용 정책 준비 전 strict 모드로 전환하지 않는다.
+  configuration_values = jsonencode({
+    enableNetworkPolicy = "true"
+  })
   # 초기에는 node role 에 AmazonEKS_CNI_Policy 가 붙어있어 별도 IRSA/Pod Identity 없이 동작
 }
 

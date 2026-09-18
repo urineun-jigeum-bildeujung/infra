@@ -75,6 +75,10 @@ eks_node_max_size       = 5
 # 빈 Bucket 은 과금되지 않으며, 새 용도가 필요하면 목록에 추가만 하면 된다.
 s3_bucket_purposes = ["static", "product-images", "uploads", "db-backups"]
 
+# 프론트 origin만 지정하며 URL 경로 또는 wildcard는 넣지 않는다.
+uploads_allowed_origins        = ["https://leechs.shop", "http://localhost:3000"]
+pending_upload_expiration_days = 3
+
 # CNPG Pod Identity — 잠정 이름이며 GitOps Cluster 와 함께 변경한다.
 # db-backups 는 목록에서 빠져도 root module 이 추가한다.
 cnpg_namespace            = "database"

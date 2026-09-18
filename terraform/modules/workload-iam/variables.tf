@@ -9,8 +9,46 @@ variable "environment" {
 }
 
 variable "cluster_name" {
-  description = "CNPG Pod Identity Association을 생성할 EKS Cluster 이름"
+  description = "워크로드 Pod Identity Association을 생성할 EKS Cluster 이름"
   type        = string
+}
+
+variable "uploads_bucket_arn" {
+  description = "리뷰/프로필 이미지용 uploads 버킷 ARN"
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.uploads_bucket_arn != null || length(var.image_upload_workloads) == 0
+    error_message = "이미지 워크로드를 지정하면 uploads_bucket_arn도 지정해야 합니다."
+  }
+}
+
+variable "image_upload_workloads" {
+  description = "서비스별 Pod Identity 연결 대상과 독립적인 S3 객체 경로"
+  type = map(object({
+    namespace       = string
+    service_account = string
+    prefix          = string
+  }))
+  default = {}
+
+  validation {
+    condition = alltrue([
+      for name, workload in var.image_upload_workloads :
+      can(regex("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$", name)) &&
+      can(regex("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$", workload.namespace)) &&
+      length(workload.service_account) <= 253 &&
+      can(regex("^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$", workload.service_account)) &&
+      contains(["reviews", "profiles"], workload.prefix)
+    ])
+    error_message = "서비스/namespace/ServiceAccount에는 유효한 Kubernetes 이름을, prefix에는 reviews 또는 profiles를 지정해야 합니다."
+  }
+
+  validation {
+    condition     = length(distinct([for workload in var.image_upload_workloads : workload.prefix])) == length(var.image_upload_workloads)
+    error_message = "이미지 서비스 간 객체 경로가 중복되면 안 됩니다."
+  }
 }
 
 variable "db_backups_bucket_arn" {

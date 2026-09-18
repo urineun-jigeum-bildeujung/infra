@@ -39,3 +39,44 @@ variable "bucket_settings" {
     error_message = "bucket_settings 의 key 는 bucket_purposes 에 포함되어야 합니다."
   }
 }
+
+variable "enable_image_uploads" {
+  description = "uploads 버킷의 이미지 직접 업로드 및 CloudFront 조회 구성 활성화"
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.enable_image_uploads || contains(var.bucket_purposes, "uploads")
+    error_message = "이미지 업로드를 활성화하려면 bucket_purposes에 uploads가 있어야 합니다."
+  }
+
+  # 현재 버전 만료만으로 객체를 영구 삭제할 수 있는 비버전 버킷만 지원한다.
+  validation {
+    condition     = !var.enable_image_uploads || !coalesce(try(var.bucket_settings["uploads"].enable_versioning, null), var.enable_versioning)
+    error_message = "이미지 uploads 버킷은 Versioning을 비활성화해야 합니다. 이전에 활성화한 버킷은 별도 버전 정리 정책이 필요합니다."
+  }
+}
+
+variable "uploads_allowed_origins" {
+  description = "S3 직접 PUT을 허용할 프론트엔드 origin 목록"
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition = (!var.enable_image_uploads || length(var.uploads_allowed_origins) > 0) && alltrue([
+      for origin in var.uploads_allowed_origins : can(regex("^https?://[a-zA-Z0-9.-]+(:[0-9]+)?$", origin))
+    ])
+    error_message = "이미지 업로드에는 하나 이상의 정확한 HTTP(S) origin이 필요하며 wildcard와 경로는 허용하지 않습니다."
+  }
+}
+
+variable "pending_upload_expiration_days" {
+  description = "status=pending 객체가 생성 후 만료되는 일수"
+  type        = number
+  default     = 3
+
+  validation {
+    condition     = var.pending_upload_expiration_days >= 1 && floor(var.pending_upload_expiration_days) == var.pending_upload_expiration_days
+    error_message = "pending 객체 만료 일수는 1 이상의 정수여야 합니다."
+  }
+}

@@ -4,8 +4,8 @@
 # 실제 리소스는 각 모듈 내부에서 정의하며, 여기서는 모듈 호출과 값 전달만 담당한다.
 
 locals {
-  # 기존 tfvars를 사용하는 팀원도 CNPG 백업 Bucket을 빠뜨리지 않도록 root에서 보장한다.
-  dev_s3_bucket_purposes = distinct(concat(var.s3_bucket_purposes, ["db-backups"]))
+  # 기존 tfvars에서도 사용자 이미지 업로드와 CNPG 백업 Bucket을 보장한다.
+  dev_s3_bucket_purposes = distinct(concat(var.s3_bucket_purposes, ["uploads", "db-backups"]))
 
   # CNPG 기반 이미지와 Web Repository는 오래된 로컬 tfvars에서 빠져 있어도 보존한다.
   # 실제 PostgreSQL 이미지는 tapply.sh가 apply 후 push한다.
@@ -126,6 +126,9 @@ module "s3" {
       enable_versioning = true
     }
   }
+  enable_image_uploads           = true
+  uploads_allowed_origins        = var.uploads_allowed_origins
+  pending_upload_expiration_days = var.pending_upload_expiration_days
   # 모든 애플리케이션 S3 Bucket은 force_destroy=false 및 prevent_destroy=true로 보호한다.
 }
 
@@ -148,6 +151,20 @@ module "workload_iam" {
   cnpg_namespace            = var.cnpg_namespace
   cnpg_service_account_name = var.cnpg_service_account_name
   cnpg_backup_prefix        = var.cnpg_backup_prefix
+
+  uploads_bucket_arn = module.s3.bucket_arns["uploads"]
+  image_upload_workloads = {
+    review-service = {
+      namespace       = "review-service"
+      service_account = "generic-service"
+      prefix          = "reviews"
+    }
+    member-service = {
+      namespace       = "member-service"
+      service_account = "generic-service"
+      prefix          = "profiles"
+    }
+  }
 
   # 운영 DB와 분리된 복원 검증 Cluster도 같은 cnpg/ prefix를 읽을 수 있게 한다.
   additional_service_account_names = [

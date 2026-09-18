@@ -6,6 +6,34 @@ output "aws_region" {
   value       = var.aws_region
 }
 
+output "image_upload_config" {
+  description = "백엔드/프론트엔드에 전달할 이미지 업로드 인프라 설정"
+  value = {
+    bucket_name             = module.s3.bucket_names["uploads"]
+    region                  = var.aws_region
+    file_base_url           = module.s3.uploads_cdn_base_url
+    allowed_origins         = var.uploads_allowed_origins
+    pending_expiration_days = var.pending_upload_expiration_days
+    authentication          = "EKS Pod Identity (AWS SDK default credential chain)"
+    workloads               = module.workload_iam.image_upload_workloads
+  }
+}
+
+output "image_upload_role_arns" {
+  description = "리뷰/프로필 서비스별 이미지 업로드 IAM Role ARN"
+  value       = module.workload_iam.image_upload_role_arns
+}
+
+output "image_upload_pod_identity_association_ids" {
+  description = "리뷰/프로필 서비스별 Pod Identity Association ID"
+  value       = module.workload_iam.image_upload_pod_identity_association_ids
+}
+
+output "uploads_cloudfront_distribution_id" {
+  description = "이미지 조회용 CloudFront Distribution ID"
+  value       = module.s3.uploads_cloudfront_distribution_id
+}
+
 # =============================================================================
 # Route53 - 도메인 등록기관(카페24) 네임서버 변경에 사용
 # =============================================================================

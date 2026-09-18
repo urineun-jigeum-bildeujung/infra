@@ -15,3 +15,13 @@ output "bucket_regional_domain_names" {
   description = "용도를 key 로 하는 리전 도메인 map. 향후 CloudFront origin 설정 등에 사용."
   value       = { for k, v in aws_s3_bucket.app : k => v.bucket_regional_domain_name }
 }
+
+output "uploads_cdn_base_url" {
+  description = "리뷰/프로필 fileUrl 생성에 사용할 HTTPS 조회 기본 URL"
+  value       = var.enable_image_uploads ? "https://${aws_cloudfront_distribution.uploads[0].domain_name}" : null
+}
+
+output "uploads_cloudfront_distribution_id" {
+  description = "이미지 조회용 CloudFront Distribution ID"
+  value       = try(aws_cloudfront_distribution.uploads[0].id, null)
+}

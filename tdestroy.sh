@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ECR/Route53/ACM/S3/Bootstrap/OAuth Secret/CNPG AWS Backup을 보존하고
+# ECR/Route53/ACM/S3/이미지 CloudFront/Bootstrap/OAuth Secret/CNPG AWS Backup을 보존하고
 # Terraform 관리 DEV 인프라를 삭제한다.
 # Kubernetes 리소스는 cleanup-k8s.sh에서 별도로 정리한다.
 
@@ -78,7 +78,7 @@ fi
 
 echo "[tdestroy] 대상 AWS Account: ${caller_account}"
 echo "[tdestroy] 대상 스택       : terraform/environments/dev"
-echo "[tdestroy] 보존 대상        : Bootstrap, ECR, Route53/ACM, S3 4개, Tailscale OAuth Secret, CNPG AWS Backup"
+echo "[tdestroy] 보존 대상        : Bootstrap, ECR, Route53/ACM, S3, 이미지 CloudFront, Tailscale OAuth Secret, CNPG AWS Backup"
 
 cd "${TERRAFORM_DIR}"
 
@@ -139,6 +139,7 @@ fi
 
 destroy_targets=(
   # module.ebs_backup은 EKS/PVC 삭제 뒤에도 Recovery Point를 보존하기 위해 제외한다.
+  # module.s3도 제외하므로 uploads 객체/CORS/Lifecycle/CloudFront/OAC를 함께 보존한다.
   -target=module.tailscale
   -target=module.workload_iam
   -target=module.platform_iam
@@ -164,4 +165,4 @@ fi
 echo "======================================"
 echo " Terraform Destroy Completed"
 echo "======================================"
-echo "[tdestroy] Bootstrap, ECR, Route53/ACM, S3 4개, Tailscale OAuth Secret과 CNPG AWS Backup은 보존했습니다."
+echo "[tdestroy] Bootstrap, ECR, Route53/ACM, S3, 이미지 CloudFront, Tailscale OAuth Secret과 CNPG AWS Backup은 보존했습니다."

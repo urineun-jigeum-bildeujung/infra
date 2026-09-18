@@ -12,6 +12,7 @@ Terraform을 활용하여 Infrastructure as Code(IaC) 방식으로 관리합니�
 `m7i-flex.large` Managed Node 3대와 Tailscale Subnet Router가 배포되어 있다.
 상세 구성과 운영 기준은 [Architecture](docs/architecture.md),
 [Capacity Plan](docs/capacity-plan.md), [Operations](docs/operations.md)를 따른다.
+리뷰/프로필 이미지 업로드 구성과 팀별 전달 사항은 [이미지 업로드](docs/image-uploads.md)를 따른다.
 
 ## Tech Stack
 
@@ -88,7 +89,7 @@ infra/
 ```
 
 `bootstrap/` 과 `environments/dev/` 는 **생명주기가 다르다**. `./tdestroy.sh`는 Bootstrap,
-ECR Repository/Image, Route53/ACM, 모든 S3 Bucket, Tailscale OAuth Secret과 CNPG AWS Backup
+ECR Repository/Image, Route53/ACM, 모든 S3 Bucket과 이미지 CloudFront, Tailscale OAuth Secret과 CNPG AWS Backup
 Vault/Plan을 보존하고 나머지 DEV 인프라만 삭제한다. 도메인 이전은
 [docs/route53-acm.md](docs/route53-acm.md), 생명주기 원칙은
 [docs/architecture.md](docs/architecture.md) 참고.

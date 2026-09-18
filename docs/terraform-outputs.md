@@ -73,6 +73,8 @@ aws eks update-kubeconfig \
 | `route53_zone_id` | string | DNS Record 연결 |
 | `route53_name_servers` | list | 도메인 등록기관 위임 확인 |
 | `acm_certificate_arn` | string | ALB HTTPS Listener/Ingress |
+| `image_upload_config` | object | Backend/Web 이미지 업로드 계약과 CloudFront 조회 기본 URL |
+| `uploads_cloudfront_distribution_id` | string | 이미지 캐시/조회 운영 확인 |
 
 ECR Map key는 `auth-service`, `member-service`, `order-service`,
 `payment-service`, `product-service`, `notification-service`, `review-service`다.
@@ -104,6 +106,8 @@ S3 Map key는 `static`, `product-images`, `uploads`, `db-backups`다.
 | `cnpg_ebs_backup_plan_id` | 일일 EBS Backup Plan 확인 |
 | `cnpg_ebs_backup_role_arn` | AWS Backup/Restore Service Role 확인 |
 | `cnpg_ebs_backup_tag` | GitOps `gp3-cnpg`와 공유하는 EBS 선택 태그 |
+| `image_upload_role_arns` | 리뷰/프로필 서비스별 S3 IAM Role 확인 |
+| `image_upload_pod_identity_association_ids` | 리뷰/프로필 namespace의 Pod Identity 연결 확인 |
 
 ## Tailscale Router
 
@@ -123,8 +127,10 @@ EC2 ID와 Private IP는 destroy/apply 재생성 시 변경된다. Tailscale IP�
 |---|---|
 | Infra | Network/EKS/IAM/Tailscale 전체 |
 | CloudNative | `aws_region`, `eks_cluster_name`, Subnet, Storage, Platform IAM/CNPG 계약 |
-| Backend | `ecr_repository_urls`, `s3_bucket_names`, Jenkins IAM 계약 |
-| Web | `s3_bucket_names`, `route53_zone_id`, `acm_certificate_arn` |
+| Backend | `ecr_repository_urls`, `image_upload_config`, 이미지/Jenkins IAM 계약 |
+| Web | `image_upload_config`의 조회 기본 URL과 CORS 허용 origin |
+
+이미지 직접 업로드 연동 방법과 서비스별 권한 범위는 [이미지 업로드](image-uploads.md)를 따른다.
 
 ## 출력 금지 정보
 

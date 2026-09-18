@@ -170,6 +170,18 @@ variable "s3_bucket_purposes" {
   default     = ["static", "product-images", "uploads", "db-backups"]
 }
 
+variable "uploads_allowed_origins" {
+  description = "DEV S3 직접 업로드를 허용할 프론트엔드 origin 목록"
+  type        = list(string)
+  default     = ["https://leechs.shop", "http://localhost:3000"]
+}
+
+variable "pending_upload_expiration_days" {
+  description = "업로드 후 등록되지 않은 pending 이미지의 만료 일수"
+  type        = number
+  default     = 3
+}
+
 variable "cnpg_namespace" {
   description = "CNPG PostgreSQL Cluster namespace (Operator namespace 가 아님). GitOps 와 맞춘다."
   type        = string

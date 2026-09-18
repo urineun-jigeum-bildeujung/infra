@@ -20,9 +20,7 @@
 #   - AES256 서버측 암호화
 #   - HTTPS(TLS) 이외 요청 거부 Bucket Policy
 #
-# 이번 브랜치에서 하지 않는 것:
-#   - CORS 설정 — 프론트 직접 업로드 도메인이 확정되면 추가한다.
-#   - CloudFront 연동 — 정적 파일 CDN 이 필요해지는 시점에 별도 브랜치에서 진행한다.
+# uploads 직접 업로드용 CORS/Lifecycle 및 비공개 S3 조회용 CloudFront는 uploads.tf에서 관리한다.
 
 locals {
   # 용도 → 실제 Bucket 이름 map
@@ -111,6 +109,32 @@ data "aws_iam_policy_document" "tls_only" {
       test     = "Bool"
       variable = "aws:SecureTransport"
       values   = ["false"]
+    }
+  }
+
+  # 기존 TLS 강제 정책에 OAC 조회 권한을 합쳐 버킷 정책 덮어쓰기를 방지한다.
+  dynamic "statement" {
+    for_each = each.key == "uploads" && var.enable_image_uploads ? [1] : []
+
+    content {
+      sid     = "AllowUploadsCloudFrontRead"
+      effect  = "Allow"
+      actions = ["s3:GetObject"]
+      resources = [
+        "${each.value.arn}/reviews/*",
+        "${each.value.arn}/profiles/*",
+      ]
+
+      principals {
+        type        = "Service"
+        identifiers = ["cloudfront.amazonaws.com"]
+      }
+
+      condition {
+        test     = "StringEquals"
+        variable = "AWS:SourceArn"
+        values   = [aws_cloudfront_distribution.uploads[0].arn]
+      }
     }
   }
 }

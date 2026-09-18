@@ -402,16 +402,16 @@ ID를 추적하고, 7일 Governance Vault Lock 및 각 Volume의 온디맨드 Re
 검증한다. 그 뒤 Argo CD와 Load Balancer를 제거하고 Persistent Workload/PVC 삭제 후 해당
 PV와 EBS가 실제로 사라진 경우에만 성공한다.
 
-`./alldestroy.sh`는 이 Cleanup이 성공한 뒤에만 `tdestroy.sh`를 실행한다. Kubernetes
-API 접근, Backup Guard, PVC/PV 삭제 또는 EBS 소멸 확인이 실패하면 Terraform Destroy를
+`./tdestroy.sh`는 내부 `cleanup-k8s.sh`가 성공한 뒤에만 `scripts/destroy-infra.sh`를 실행한다. Kubernetes
+API 접근, Backup Guard, PVC/PV 삭제 또는 EBS 소멸 확인이 실패하면 내부 Terraform Destroy를
 시작하지 않는다. 동일 Recovery Point를 PVC/EBS 정리 직후와 Terraform destroy 직전·직후에
 다시 조회해 단계 사이의 유실도 감지한다. 스크립트는 AWS CLI `delete-volume`로 고아
 Volume을 자동 강제 삭제하지 않는다.
 
-`tdestroy.sh`는 Network/EKS/IAM/Platform IAM/Tailscale을 삭제하고 Bootstrap,
+`scripts/destroy-infra.sh`는 Network/EKS/IAM/Platform IAM/Tailscale을 삭제하고 Bootstrap,
 ECR Repository/Image, Route53/ACM, Tailscale OAuth Secret, CNPG AWS Backup Vault/Plan과
 DEV S3 4개(`static`, `product-images`, `uploads`, `db-backups`)를 보존한다. 따라서
-`alldestroy.sh`로 원본 PVC/EBS가 삭제되어도 보관 기간 안의 S3 백업과 EBS Recovery Point는
+`tdestroy.sh`로 원본 PVC/EBS가 삭제되어도 보관 기간 안의 S3 백업과 EBS Recovery Point는
 복구 증적으로 남는다. ECR은 `force_delete=false`와 `prevent_destroy`로도 실수 삭제를 방어한다.
 상세 절차는 [Operations](operations.md)를 따른다.
 

@@ -42,7 +42,7 @@ GitOps Workload
   → AWS EBS Volume
 ```
 
-EBS CSI가 만든 Volume은 Terraform State에 들어가지 않는다. `alldestroy.sh`는 반드시
+EBS CSI가 만든 Volume은 Terraform State에 들어가지 않는다. `tdestroy.sh`는 내부에서
 `cleanup-k8s.sh`를 먼저 실행하고, Cleanup 성공 후에만 Terraform Destroy를 실행한다.
 
 `cleanup-k8s.sh`의 Storage 정리 순서:

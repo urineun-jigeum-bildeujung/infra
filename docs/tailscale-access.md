@@ -210,19 +210,9 @@ Router는 Public IP 없이 AWS NAT Gateway 뒤에 있으므로 Client와 direct 
 
 ## destroy → apply 재생성 검증
 
-Kubernetes가 생성한 Ingress와 LoadBalancer Service를 정리한 뒤 Terraform DEV 인프라를 삭제한다. Terraform과 AWS CLI가 준비된 Windows WSL에서 Tailscale을 켠 상태라면 통합 스크립트 하나를 실행한다.
+Tailscale을 통해 EKS Private API에 접근할 수 있는 환경에서 전체 삭제 명령을 실행한다. `tdestroy.sh`가 Kubernetes Cleanup과 Backup Guard를 통과한 뒤 내부 Terraform Destroy를 수행한다.
 
 ~~~bash
-AWS_PROFILE=ujibil2 ./alldestroy.sh
-~~~
-
-VMware와 역할을 분리할 때는 Windows에서 Kubernetes 정리를 먼저 완료한 후 VMware에서 Terraform Destroy를 실행한다.
-
-~~~bash
-# Windows WSL + Tailscale ON
-AWS_PROFILE=ujibil2 ./cleanup-k8s.sh
-
-# VMware
 AWS_PROFILE=ujibil2 ./tdestroy.sh
 ~~~
 

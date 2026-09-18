@@ -134,7 +134,7 @@ DEV는 운영 수준의 고가용성보다 검증 목적과 비용 절감을 우
 - Managed Node는 기본 3대, 최대 5대로 제한한다.
 - 상시 GPU Node를 두지 않는다.
 - 불필요한 ALB/NLB와 EBS/PVC를 정기적으로 확인한다.
-- 작업하지 않는 기간에는 `alldestroy.sh`로 삭제한다.
+- 작업하지 않는 기간에는 `tdestroy.sh`로 삭제한다.
 - Terraform State, Route53/ACM, 보존 S3와 Bootstrap Resource는 유지한다.
 
 주요 비용 항목은 EKS Control Plane, EC2 Worker/Karpenter Node, NAT Gateway,

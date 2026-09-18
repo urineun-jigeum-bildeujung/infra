@@ -1,168 +1,54 @@
 #!/usr/bin/env bash
-# ECR/Route53/ACM/S3/이미지 CloudFront/Bootstrap/OAuth Secret/CNPG AWS Backup을 보존하고
-# Terraform 관리 DEV 인프라를 삭제한다.
-# Kubernetes 리소스는 cleanup-k8s.sh에서 별도로 정리한다.
+# Kubernetes 리소스 정리부터 Terraform DEV 인프라 삭제까지 수행하는 공개 진입점이다.
 
-set -euo pipefail
+set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TERRAFORM_DIR="${SCRIPT_DIR}/terraform/environments/dev"
+LOCK_FILE="/tmp/petflow-dev-infra.lock"
 EXPECTED_AWS_ACCOUNT_ID="297165773875"
 EXPECTED_AWS_REGION="ap-northeast-2"
-CNPG_BACKUP_VAULT_NAME="petflow-dev-cnpg-ebs"
-CNPG_BACKUP_GUARD="${SCRIPT_DIR}/scripts/cnpg-backup-guard.sh"
-CNPG_BACKUP_MANIFEST="${PETFLOW_CNPG_BACKUP_MANIFEST:-}"
 
-require_command() {
-  local command_name="$1"
-
-  if ! command -v "${command_name}" >/dev/null 2>&1; then
-    echo "[tdestroy] ${command_name} 명령이 필요합니다." >&2
-    exit 1
-  fi
+fail() {
+  printf '[tdestroy] ERROR: %s\n' "$*" >&2
+  exit 1
 }
 
-report_orphan_ebs() {
-  local aws_region="$1"
-  local orphan_count
+for command_name in aws terraform kubectl jq flock; do
+  command -v "${command_name}" >/dev/null 2>&1 \
+    || fail "${command_name} 명령이 필요합니다."
+done
 
-  echo "[tdestroy] 고아 EBS 후보 조회(읽기 전용)"
-  orphan_count="$(aws ec2 describe-volumes \
-    --region "${aws_region}" \
-    --filters \
-      "Name=status,Values=available" \
-      "Name=tag:KubernetesCluster,Values=petflow-eks" \
-    --query 'length(Volumes[?length(Attachments)==`0`])' \
-    --output text)"
+[[ -n "${AWS_PROFILE:-}" ]] || fail "AWS_PROFILE을 명시해주세요. 예: AWS_PROFILE=ujibil2 ./tdestroy.sh"
 
-  if [[ "${orphan_count}" == "0" ]]; then
-    echo "[tdestroy] available/미연결 고아 EBS 후보가 없습니다."
-    return
-  fi
+aws_region="${AWS_REGION:-${AWS_DEFAULT_REGION:-$(aws configure get region --profile "${AWS_PROFILE}" 2>/dev/null || true)}}"
+[[ "${aws_region}" == "${EXPECTED_AWS_REGION}" ]] \
+  || fail "잘못된 AWS Region입니다: ${aws_region:-unset} (예상: ${EXPECTED_AWS_REGION})"
 
-  aws ec2 describe-volumes \
-    --region "${aws_region}" \
-    --filters \
-      "Name=status,Values=available" \
-      "Name=tag:KubernetesCluster,Values=petflow-eks" \
-    --query 'Volumes[?length(Attachments)==`0`].{VolumeId:VolumeId,Namespace:Tags[?Key==`kubernetes.io/created-for/pvc/namespace`].Value|[0],PVC:Tags[?Key==`kubernetes.io/created-for/pvc/name`].Value|[0],SizeGiB:Size,Created:CreateTime}' \
-    --output table
+caller_account="$(aws sts get-caller-identity --query Account --output text 2>/dev/null || true)"
+[[ "${caller_account}" == "${EXPECTED_AWS_ACCOUNT_ID}" ]] \
+  || fail "잘못된 AWS Account 또는 인증 정보입니다: ${caller_account:-unknown}"
 
-  echo "[tdestroy] 고아 EBS 후보 ${orphan_count}개를 자동 삭제하지 않았습니다."
-  echo "[tdestroy] 데이터 보존 여부와 현재 PV 미참조를 별도로 확인한 뒤 명시적으로 정리해주세요."
-}
+exec 9>"${LOCK_FILE}"
+flock -n 9 || fail "다른 PetFlow 인프라 Apply/Destroy 작업이 실행 중입니다."
+
+export AWS_REGION="${aws_region}"
+export PETFLOW_DESTROY_RUN_ID="${PETFLOW_DESTROY_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
+export PETFLOW_DESTROY_EVIDENCE_DIR="${PETFLOW_DESTROY_EVIDENCE_DIR:-${SCRIPT_DIR}/.destroy-evidence}"
+export PETFLOW_CNPG_BACKUP_MANIFEST="${PETFLOW_CNPG_BACKUP_MANIFEST:-${PETFLOW_DESTROY_EVIDENCE_DIR}/${PETFLOW_DESTROY_RUN_ID}-cnpg-backups.json}"
 
 echo "======================================"
-echo " Terraform Destroy"
+echo " Full DEV Infrastructure Destroy"
 echo "======================================"
+echo "[tdestroy] AWS Account: ${caller_account}"
+echo "[tdestroy] AWS Region : ${aws_region}"
+echo "[tdestroy] CNPG Backup 증거: ${PETFLOW_CNPG_BACKUP_MANIFEST}"
 
-require_command aws
-require_command terraform
+echo "[1/2] Kubernetes LB/Persistent Storage Cleanup"
+"${SCRIPT_DIR}/cleanup-k8s.sh"
 
-if [[ ! -d "${TERRAFORM_DIR}" ]]; then
-  echo "[tdestroy] Terraform 디렉터리를 찾을 수 없습니다: ${TERRAFORM_DIR}" >&2
-  exit 1
-fi
-
-if ! aws sts get-caller-identity >/dev/null 2>&1; then
-  echo "[tdestroy] AWS 인증 정보를 확인해주세요." >&2
-  exit 1
-fi
-
-caller_account="$(aws sts get-caller-identity --query Account --output text)"
-if [[ "${caller_account}" != "${EXPECTED_AWS_ACCOUNT_ID}" ]]; then
-  echo "[tdestroy] 잘못된 AWS Account입니다: ${caller_account}" >&2
-  echo "[tdestroy] 예상 Account: ${EXPECTED_AWS_ACCOUNT_ID}" >&2
-  exit 1
-fi
-
-echo "[tdestroy] 대상 AWS Account: ${caller_account}"
-echo "[tdestroy] 대상 스택       : terraform/environments/dev"
-echo "[tdestroy] 보존 대상        : Bootstrap, ECR, Route53/ACM, S3, 이미지 CloudFront, Tailscale OAuth Secret, CNPG AWS Backup"
-
-cd "${TERRAFORM_DIR}"
-
-if [[ ! -f backend.hcl ]]; then
-  echo "[tdestroy] backend.hcl 파일이 없습니다." >&2
-  exit 1
-fi
-
-echo "[1/2] Terraform 초기화"
-terraform init -backend-config=backend.hcl -input=false
-
-# tdestroy.sh를 단독 실행하더라도 Kubernetes Controller가 만든 외부 LB를
-# 남긴 채 VPC 삭제를 시작하지 않도록 AWS API에서 한 번 더 확인한다.
-vpc_id="$(terraform output -raw vpc_id 2>/dev/null || true)"
-aws_region="$(terraform output -raw aws_region 2>/dev/null || true)"
-cluster_name="$(terraform output -raw eks_cluster_name 2>/dev/null || true)"
-
-eks_exists=false
-backup_guard_verified=false
-if [[ -n "${cluster_name}" ]] && aws eks describe-cluster \
-  --name "${cluster_name}" --region "${aws_region:-${EXPECTED_AWS_REGION}}" >/dev/null 2>&1; then
-  eks_exists=true
-fi
-
-if [[ "${eks_exists}" == "true" ]]; then
-  if [[ -z "${CNPG_BACKUP_MANIFEST}" || ! -f "${CNPG_BACKUP_MANIFEST}" ]]; then
-    echo "[tdestroy] 활성 EKS를 삭제하려면 cleanup-k8s.sh가 만든 CNPG Backup manifest가 필요합니다." >&2
-    echo "[tdestroy] PETFLOW_CNPG_BACKUP_MANIFEST를 정확한 파일 경로로 지정해주세요." >&2
-    exit 1
-  fi
-
-  echo "[tdestroy] Terraform Destroy 직전 CNPG Backup Guard"
-  bash "${CNPG_BACKUP_GUARD}" verify \
-    --region "${aws_region}" \
-    --vault "${CNPG_BACKUP_VAULT_NAME}" \
-    --manifest "${CNPG_BACKUP_MANIFEST}" \
-    --phase "pre-terraform-destroy"
-  backup_guard_verified=true
-fi
-
-if [[ -n "${vpc_id}" && -n "${aws_region}" ]]; then
-  if [[ "${aws_region}" != "${EXPECTED_AWS_REGION}" ]]; then
-    echo "[tdestroy] 잘못된 AWS Region입니다: ${aws_region}" >&2
-    echo "[tdestroy] 예상 Region: ${EXPECTED_AWS_REGION}" >&2
-    exit 1
-  fi
-
-  v2_load_balancer_count="$(aws elbv2 describe-load-balancers --region "${aws_region}" --query "length(LoadBalancers[?VpcId=='${vpc_id}'])" --output text)"
-  classic_load_balancer_count="$(aws elb describe-load-balancers --region "${aws_region}" --query "length(LoadBalancerDescriptions[?VPCId=='${vpc_id}'])" --output text)"
-
-  if ((v2_load_balancer_count > 0 || classic_load_balancer_count > 0)); then
-    echo "[tdestroy] DEV VPC에 외부 Load Balancer가 남아 있어 Destroy를 중단합니다." >&2
-    echo "[tdestroy] cleanup-k8s.sh를 먼저 실행해주세요." >&2
-    echo "[tdestroy] ALB/NLB: ${v2_load_balancer_count}, Classic ELB: ${classic_load_balancer_count}" >&2
-    exit 1
-  fi
-fi
-
-destroy_targets=(
-  # module.ebs_backup은 EKS/PVC 삭제 뒤에도 Recovery Point를 보존하기 위해 제외한다.
-  # module.s3도 제외하므로 uploads 객체/CORS/Lifecycle/CloudFront/OAC를 함께 보존한다.
-  -target=module.tailscale
-  -target=module.workload_iam
-  -target=module.platform_iam
-  -target=module.eks
-  -target=module.iam
-  -target=module.network
-)
-
-echo "[2/2] Terraform Destroy 실행"
-terraform destroy --auto-approve -input=false "${destroy_targets[@]}"
-
-if [[ "${backup_guard_verified}" == "true" ]]; then
-  echo "[tdestroy] Terraform Destroy 직후 CNPG Backup Guard"
-  bash "${CNPG_BACKUP_GUARD}" verify --region "${aws_region:-${EXPECTED_AWS_REGION}}" --vault "${CNPG_BACKUP_VAULT_NAME}" --manifest "${CNPG_BACKUP_MANIFEST}" --phase "post-terraform-destroy"
-fi
-
-if [[ -n "${aws_region}" ]]; then
-  report_orphan_ebs "${aws_region}"
-else
-  echo "[tdestroy] AWS Region을 확인하지 못해 고아 EBS 후보 보고를 건너뜁니다." >&2
-fi
+echo "[2/2] Terraform DEV Infra Destroy"
+PETFLOW_INTERNAL_ORCHESTRATOR=true "${SCRIPT_DIR}/scripts/destroy-infra.sh"
 
 echo "======================================"
-echo " Terraform Destroy Completed"
+echo " Full DEV Infrastructure Destroy Completed"
 echo "======================================"
-echo "[tdestroy] Bootstrap, ECR, Route53/ACM, S3, 이미지 CloudFront, Tailscale OAuth Secret과 CNPG AWS Backup은 보존했습니다."

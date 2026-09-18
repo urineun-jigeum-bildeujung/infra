@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # GitOps/Argo CD 장애 시에만 사용하는 AWS Load Balancer Controller 비상 복구 도구다.
-# 정상 복구는 GitOps의 platform/10-aws-load-balancer-controller Application이 담당하며,
-# trestore.sh는 이 스크립트를 호출하지 않는다.
+# 정상 Apply는 GitOps의 platform/10-aws-load-balancer-controller Application이 담당하며,
+# tapply.sh는 이 스크립트를 호출하지 않는다.
 #
 # 비상 사용:
-#   ALLOW_ALB_CONTROLLER_BREAK_GLASS=true \
+#   BREAK_GLASS_ALB_CONTROLLER=true \
 #   AWS_PROFILE=ujibil2 \
 #     ./scripts/install-alb-controller.sh
 
@@ -20,7 +20,7 @@ NAMESPACE="kube-system"
 SERVICE_ACCOUNT="aws-load-balancer-controller"
 TEMP_KUBECONFIG=""
 HELM_CONFLICT_ARGS=()
-BREAK_GLASS="${ALLOW_ALB_CONTROLLER_BREAK_GLASS:-false}"
+BREAK_GLASS="${BREAK_GLASS_ALB_CONTROLLER:-${ALLOW_ALB_CONTROLLER_BREAK_GLASS:-false}}"
 
 cleanup() {
   if [[ -n "${TEMP_KUBECONFIG}" && -f "${TEMP_KUBECONFIG}" ]]; then
@@ -38,7 +38,7 @@ done
 
 case "${BREAK_GLASS}" in
   true|false) ;;
-  *) echo "[alb-controller] ALLOW_ALB_CONTROLLER_BREAK_GLASS는 true 또는 false여야 합니다." >&2; exit 1 ;;
+  *) echo "[alb-controller] BREAK_GLASS_ALB_CONTROLLER는 true 또는 false여야 합니다." >&2; exit 1 ;;
 esac
 
 if ! aws sts get-caller-identity >/dev/null 2>&1; then
@@ -75,7 +75,7 @@ if kubectl --kubeconfig "${TEMP_KUBECONFIG}" \
   --namespace argocd get application aws-load-balancer-controller >/dev/null 2>&1; then
   if [[ "${BREAK_GLASS}" != "true" ]]; then
     echo "[alb-controller] ERROR: AWS Load Balancer Controller는 Argo CD가 관리 중입니다." >&2
-    echo "[alb-controller] ERROR: 비상 실행에는 ALLOW_ALB_CONTROLLER_BREAK_GLASS=true가 필요합니다." >&2
+    echo "[alb-controller] ERROR: 비상 실행에는 BREAK_GLASS_ALB_CONTROLLER=true가 필요합니다." >&2
     exit 1
   fi
 fi

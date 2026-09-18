@@ -25,3 +25,17 @@ provider "aws" {
     }
   }
 }
+
+# CloudFront Viewer 인증서는 AWS 요구사항상 반드시 us-east-1에 있어야 한다.
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+
+  default_tags {
+    tags = {
+      Project     = var.project_name
+      Environment = var.environment
+      ManagedBy   = "Terraform"
+    }
+  }
+}

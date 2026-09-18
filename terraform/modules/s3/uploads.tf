@@ -52,6 +52,7 @@ resource "aws_cloudfront_distribution" "uploads" {
   is_ipv6_enabled = true
   comment         = "${var.project_name}-${var.environment} 리뷰/프로필 이미지"
   price_class     = "PriceClass_200"
+  aliases         = var.uploads_custom_domain_name == null ? [] : [var.uploads_custom_domain_name]
 
   origin {
     domain_name              = aws_s3_bucket.app["uploads"].bucket_regional_domain_name
@@ -88,12 +89,23 @@ resource "aws_cloudfront_distribution" "uploads" {
     }
   }
 
-  # 기본 CloudFront HTTPS 도메인을 사용해 별도 DNS/ACM 의존성을 만들지 않는다.
   viewer_certificate {
-    cloudfront_default_certificate = true
+    cloudfront_default_certificate = var.uploads_cloudfront_certificate_arn == null
+    acm_certificate_arn            = var.uploads_cloudfront_certificate_arn
+    ssl_support_method             = var.uploads_cloudfront_certificate_arn == null ? null : "sni-only"
+    minimum_protocol_version       = var.uploads_cloudfront_certificate_arn == null ? null : "TLSv1.2_2021"
   }
 
   lifecycle {
     prevent_destroy = true
+
+    precondition {
+      condition = (
+        var.uploads_custom_domain_name == null && var.uploads_cloudfront_certificate_arn == null
+      ) || (
+        var.uploads_custom_domain_name != null && var.uploads_cloudfront_certificate_arn != null
+      )
+      error_message = "CloudFront 이미지 도메인과 us-east-1 ACM 인증서는 함께 지정해야 합니다."
+    }
   }
 }

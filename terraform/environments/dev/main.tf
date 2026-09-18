@@ -7,6 +7,9 @@ locals {
   # 기존 tfvars에서도 사용자 이미지 업로드와 CNPG 백업 Bucket을 보장한다.
   dev_s3_bucket_purposes = distinct(concat(var.s3_bucket_purposes, ["uploads", "db-backups"]))
 
+  # 앱에는 CloudFront 기본 도메인 대신 이 고정 이미지 도메인을 전달한다.
+  uploads_custom_domain_name = "image.${var.domain_name}"
+
   # CNPG 기반 이미지와 Web Repository는 오래된 로컬 tfvars에서 빠져 있어도 보존한다.
   # 실제 PostgreSQL 이미지는 tapply.sh가 apply 후 push한다.
   dev_ecr_repository_names = distinct(concat(var.ecr_repository_names, [
@@ -126,9 +129,11 @@ module "s3" {
       enable_versioning = true
     }
   }
-  enable_image_uploads           = true
-  uploads_allowed_origins        = var.uploads_allowed_origins
-  pending_upload_expiration_days = var.pending_upload_expiration_days
+  enable_image_uploads               = true
+  uploads_allowed_origins            = var.uploads_allowed_origins
+  pending_upload_expiration_days     = var.pending_upload_expiration_days
+  uploads_custom_domain_name         = local.uploads_custom_domain_name
+  uploads_cloudfront_certificate_arn = aws_acm_certificate_validation.uploads_cloudfront.certificate_arn
   # 모든 애플리케이션 S3 Bucket은 force_destroy=false 및 prevent_destroy=true로 보호한다.
 }
 
@@ -138,6 +143,54 @@ module "route53_acm" {
   source = "../../modules/route53-acm"
 
   domain_name = var.domain_name
+}
+
+# CloudFront는 Viewer 인증서를 반드시 us-east-1 ACM에서 사용해야 한다.
+# 기존 route53_acm 모듈의 서울 리전 인증서는 ALB HTTPS 용도로 계속 유지한다.
+resource "aws_acm_certificate" "uploads_cloudfront" {
+  provider          = aws.us_east_1
+  domain_name       = local.uploads_custom_domain_name
+  validation_method = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_route53_record" "uploads_cloudfront_acm_validation" {
+  for_each = {
+    for option in aws_acm_certificate.uploads_cloudfront.domain_validation_options :
+    option.domain_name => {
+      name   = option.resource_record_name
+      record = option.resource_record_value
+      type   = option.resource_record_type
+    }
+  }
+
+  zone_id = module.route53_acm.zone_id
+  name    = each.value.name
+  type    = each.value.type
+  ttl     = 60
+  records = [each.value.record]
+}
+
+resource "aws_acm_certificate_validation" "uploads_cloudfront" {
+  provider                = aws.us_east_1
+  certificate_arn         = aws_acm_certificate.uploads_cloudfront.arn
+  validation_record_fqdns = [for record in aws_route53_record.uploads_cloudfront_acm_validation : record.fqdn]
+}
+
+# image.leechs.shop -> private S3를 origin으로 하는 CloudFront Distribution
+resource "aws_route53_record" "uploads_cloudfront" {
+  zone_id = module.route53_acm.zone_id
+  name    = local.uploads_custom_domain_name
+  type    = "A"
+
+  alias {
+    name                   = module.s3.uploads_cloudfront_domain_name
+    zone_id                = module.s3.uploads_cloudfront_hosted_zone_id
+    evaluate_target_health = false
+  }
 }
 
 # CNPG PostgreSQL Pod가 Barman Cloud를 통해 S3에 백업할 때 사용하는 Pod Identity Role.

@@ -80,3 +80,27 @@ variable "pending_upload_expiration_days" {
     error_message = "pending 객체 만료 일수는 1 이상의 정수여야 합니다."
   }
 }
+
+variable "uploads_custom_domain_name" {
+  description = "이미지 조회에 사용할 CloudFront 대체 도메인. null이면 CloudFront 기본 도메인을 사용한다."
+  type        = string
+  default     = null
+  nullable    = true
+
+  validation {
+    condition     = var.uploads_custom_domain_name == null || can(regex("^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)+[a-z]{2,}$", var.uploads_custom_domain_name))
+    error_message = "uploads_custom_domain_name은 image.leechs.shop과 같은 유효한 소문자 도메인이어야 합니다."
+  }
+}
+
+variable "uploads_cloudfront_certificate_arn" {
+  description = "uploads_custom_domain_name에 연결할 us-east-1 ACM 인증서 ARN. 도메인을 사용하지 않으면 null이다."
+  type        = string
+  default     = null
+  nullable    = true
+
+  validation {
+    condition     = var.uploads_cloudfront_certificate_arn == null || can(regex("^arn:[^:]+:acm:us-east-1:[0-9]{12}:certificate/[0-9a-f-]+$", var.uploads_cloudfront_certificate_arn))
+    error_message = "CloudFront 인증서는 us-east-1 ACM certificate ARN이어야 합니다."
+  }
+}

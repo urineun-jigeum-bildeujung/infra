@@ -18,10 +18,20 @@ output "bucket_regional_domain_names" {
 
 output "uploads_cdn_base_url" {
   description = "리뷰/프로필 fileUrl 생성에 사용할 HTTPS 조회 기본 URL"
-  value       = var.enable_image_uploads ? "https://${aws_cloudfront_distribution.uploads[0].domain_name}" : null
+  value       = var.enable_image_uploads ? "https://${coalesce(var.uploads_custom_domain_name, aws_cloudfront_distribution.uploads[0].domain_name)}" : null
 }
 
 output "uploads_cloudfront_distribution_id" {
   description = "이미지 조회용 CloudFront Distribution ID"
   value       = try(aws_cloudfront_distribution.uploads[0].id, null)
+}
+
+output "uploads_cloudfront_domain_name" {
+  description = "Route53 Alias 대상으로 사용할 CloudFront 기본 도메인"
+  value       = try(aws_cloudfront_distribution.uploads[0].domain_name, null)
+}
+
+output "uploads_cloudfront_hosted_zone_id" {
+  description = "Route53 Alias 대상으로 사용할 CloudFront Hosted Zone ID"
+  value       = try(aws_cloudfront_distribution.uploads[0].hosted_zone_id, null)
 }

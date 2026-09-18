@@ -15,10 +15,12 @@ run "pending_expiration_and_private_cdn" {
   }
 
   variables {
-    project_name            = "petflow"
-    environment             = "dev"
-    enable_image_uploads    = true
-    uploads_allowed_origins = ["https://leechs.shop", "http://localhost:3000"]
+    project_name                       = "petflow"
+    environment                        = "dev"
+    enable_image_uploads               = true
+    uploads_allowed_origins            = ["https://leechs.shop", "http://localhost:3000"]
+    uploads_custom_domain_name         = "image.leechs.shop"
+    uploads_cloudfront_certificate_arn = "arn:aws:acm:us-east-1:297165773875:certificate/00000000-0000-0000-0000-000000000000"
   }
 
   assert {
@@ -73,6 +75,17 @@ run "pending_expiration_and_private_cdn" {
       ])
     )
     error_message = "CloudFront는 S3 REST origin에 OAC 서명으로 접근하고 읽기 전용 HTTPS 경로를 제공해야 합니다."
+  }
+
+  assert {
+    condition = (
+      toset(aws_cloudfront_distribution.uploads[0].aliases) == toset(["image.leechs.shop"]) &&
+      !aws_cloudfront_distribution.uploads[0].viewer_certificate[0].cloudfront_default_certificate &&
+      aws_cloudfront_distribution.uploads[0].viewer_certificate[0].acm_certificate_arn == "arn:aws:acm:us-east-1:297165773875:certificate/00000000-0000-0000-0000-000000000000" &&
+      aws_cloudfront_distribution.uploads[0].viewer_certificate[0].ssl_support_method == "sni-only" &&
+      aws_cloudfront_distribution.uploads[0].viewer_certificate[0].minimum_protocol_version == "TLSv1.2_2021"
+    )
+    error_message = "커스텀 이미지 도메인은 us-east-1 ACM 인증서와 TLS 1.2 이상을 사용해야 합니다."
   }
 
   assert {

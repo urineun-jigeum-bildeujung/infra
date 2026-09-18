@@ -34,6 +34,11 @@ output "uploads_cloudfront_distribution_id" {
   value       = module.s3.uploads_cloudfront_distribution_id
 }
 
+output "uploads_custom_domain_name" {
+  description = "리뷰/프로필 이미지 조회에 사용하는 고정 CloudFront 도메인"
+  value       = local.uploads_custom_domain_name
+}
+
 # =============================================================================
 # Route53 - 도메인 등록기관(카페24) 네임서버 변경에 사용
 # =============================================================================

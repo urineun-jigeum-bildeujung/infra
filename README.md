@@ -49,6 +49,7 @@ infra/
 │  ├─ dev-infra-validation.md # DEV 플랫폼 기반 검증 결과
 │  ├─ external-secrets-operator.md # ESO Pod Identity / Secrets Manager 연동 계약
 │  ├─ jenkins-kaniko-ecr.md   # Jenkins Kaniko / ECR 연동 계약
+│  ├─ management-observability-access.md # Grafana/Prometheus Private ALB/DNS
 │  ├─ operations.md           # Apply / Destroy / 장애 확인 절차
 │  ├─ platform-integration.md  # Karpenter / ALB Controller GitOps 연동 계약
 │  ├─ redis-kafka-infra-notes.md # Redis/Kafka AWS 기반과 PV/EBS 생명주기
@@ -71,20 +72,23 @@ infra/
 │  │  └─ tailscale/          # 관리자 VPN용 Private Subnet Router EC2 / SSM
 │  │
 │  └─ environments/          # 실제 Terraform 실행 위치 (Root Module)
-│     └─ dev/                # DEV 환경: 위 모듈들을 조립
+│     ├─ dev/                # DEV 환경: 위 모듈들을 조립
+│     ├─ dev-web-dns/        # Public Web ALB Route53 Alias 별도 State
+│     └─ dev-management-dns/ # Grafana/Prometheus Internal ALB Alias 별도 State
 │
 ├─ kubernetes/
 │  ├─ alb-controller/        # 비상 수동 복구용 AWS Load Balancer Controller Helm values
 │  └─ tests/                 # 임시 HTTPS End-to-End 테스트 manifest
 ├─ scripts/
 │  ├─ apply-infra.sh         # tapply.sh가 호출하는 Terraform 전용 내부 작업
+│  ├─ configure-management-access.sh # 관리 ALB/Target/DNS/HTTPS 내부 자동화
 │  ├─ destroy-infra.sh       # tdestroy.sh가 호출하는 Terraform 전용 내부 작업
 │  ├─ install-alb-controller.sh  # GitOps 장애 시에만 쓰는 비상 수동 복구
 │  └─ https-test.sh
 │
 ├─ tinit.sh                  # 프로젝트 루트에서 실행하는 편의 스크립트 (dev 대상)
 ├─ tplan.sh
-├─ tapply.sh                 # Terraform → GitOps → ALB → DNS → HTTPS 전체 생성
+├─ tapply.sh                 # Terraform → GitOps → Public/Private ALB → DNS → HTTPS
 ├─ tdestroy.sh               # Kubernetes Cleanup → Terraform 전체 삭제
 ├─ trestore.sh               # tapply.sh 호환 래퍼(폐기 예정)
 ├─ alldestroy.sh             # tdestroy.sh 호환 래퍼(폐기 예정)
@@ -230,7 +234,7 @@ git checkout -b feat/<작업이름>
 # ... Terraform 코드 편집 ...
 
 AWS_PROFILE=ujibil2 ./tplan.sh
-AWS_PROFILE=ujibil2 ./tapply.sh   # DEV 전체를 공개 HTTPS 정상 상태까지 생성
+AWS_PROFILE=ujibil2 ./tapply.sh   # Public Web과 Private 관리 HTTPS까지 생성
 
 # 테스트 종료 후 전체 정리 (Tailscale/EKS 접근 가능한 환경)
 AWS_PROFILE=ujibil2 ./tdestroy.sh
@@ -247,9 +251,10 @@ State locking (`use_lockfile = true`) 덕분에 팀원 A 가 apply 중이면 B �
 |---|---|---|
 | `tinit.sh` | 프로젝트 루트 | 필수 도구 / 인증 / `backend.hcl` 확인 후 `terraform init -backend-config=backend.hcl` |
 | `tplan.sh` | 프로젝트 루트 | AWS 인증 확인 → `terraform fmt` + `validate` + `plan` |
-| `tapply.sh` | 프로젝트 루트 | Terraform → EKS/Worker → GitOps → ALB/Target → Route53 → HTTPS 전체 생성·검증 |
-| `tdestroy.sh` | 프로젝트 루트 | Kubernetes/LB/Persistent Storage Cleanup → Backup Guard → DEV Terraform 삭제 |
+| `tapply.sh` | 프로젝트 루트 | Terraform → GitOps → Public Web/Private Management ALB·Target → Route53 → HTTPS 전체 생성·검증 |
+| `tdestroy.sh` | 프로젝트 루트 | Kubernetes/LB/TG/SG/ENI/Persistent Storage Cleanup → Backup Guard → DEV Terraform 삭제 |
 | `scripts/apply-infra.sh` | 내부 | Terraform Apply와 CNPG PostgreSQL 이미지 준비. 직접 실행하지 않음 |
+| `scripts/configure-management-access.sh` | 내부 | Management Internal ALB/Host Rule/Target/DNS/HTTPS Guard. 직접 실행하지 않음 |
 | `scripts/destroy-infra.sh` | 내부 | 보존 대상을 제외한 DEV Terraform 모듈 삭제. 직접 실행하지 않음 |
 | `cleanup-k8s.sh` | 내부 | CNPG Recovery Point/Vault Lock 확인 → Argo CD/LB/Persistent Storage 정리 |
 | `trestore.sh` / `alldestroy.sh` | 호환 래퍼 | 각각 `tapply.sh` / `tdestroy.sh`로 전달하며 폐기 예정 경고 출력 |
@@ -270,6 +275,7 @@ Bootstrap 스택은 담당자가 해당 디렉터리로 직접 이동해서 `ter
 ## 다음 참고 문서
 
 - [docs/architecture.md](docs/architecture.md) — 아키텍처 원칙, Bootstrap ↔ DEV 생명주기 분리, Bootstrap 담당자 최초 실행 절차, AWS 계정 발급 전 작업 원칙
+- [docs/management-observability-access.md](docs/management-observability-access.md) — Grafana/Prometheus Internal ALB, Route53, Tailscale 전용 접속
 - [docs/route53-acm.md](docs/route53-acm.md) — leechs.shop Route53 이전, ACM 및 ALB 연결 단계
 - [docs/alb-https-test.md](docs/alb-https-test.md) — AWS Load Balancer Controller 설치 및 test.leechs.shop HTTPS 통합 검증
 - [docs/tailscale-access.md](docs/tailscale-access.md) — AWS 전용 Subnet Router 적용, Tailnet 인증, Private EKS 접근 검증

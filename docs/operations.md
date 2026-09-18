@@ -38,8 +38,10 @@ aws sts get-caller-identity
 ./tapply.sh
 ```
 
-`tapply.sh`는 Terraform `--auto-approve` 이후 EKS/Worker, GitOps, ALB/Target,
-Route53과 공개 HTTPS까지 자동 검증한다. Plan에서 예상하지 않은 Route53/ACM/S3 교체,
+`tapply.sh`는 Terraform `--auto-approve` 이후 EKS/Worker, GitOps, Public Web ALB와
+Grafana/Prometheus Internal ALB/Target, Route53 및 HTTPS까지 자동 검증한다. 관리 도메인은
+Tailscale 경로에서만 접속할 수 있다. 상세 Guard는
+[management-observability-access.md](management-observability-access.md)를 따른다. Plan에서 예상하지 않은 Route53/ACM/S3 교체,
 EKS/VPC 삭제, IAM 대량 변경이 있으면 실행하지 않는다.
 
 ## Apply 후 기본 검증
@@ -186,7 +188,8 @@ cleanup-k8s.sh
   → 7일 Governance Vault Lock 확인
   → EBS별 COMPLETED 온디맨드 Backup/Recovery Point/보존기한 확인
   → 증거 manifest 저장
-  → Argo CD 동기화 및 AWS 연계 리소스 정리
+  → Argo CD 동기화 중지 및 Ingress/LoadBalancer Service 삭제
+  → ALB/NLB/Target Group/Controller SG/ELB ENI orphan 없음 확인
   → Persistent Workload/PVC/PV/EBS 삭제 확인
   → 동일 Recovery Point 유지 확인
 scripts/destroy-infra.sh

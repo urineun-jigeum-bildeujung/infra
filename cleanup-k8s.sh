@@ -393,23 +393,34 @@ verify_no_aws_load_balancers() {
   local attempt
   local v2_count
   local classic_count
+  local target_group_count
+  local managed_sg_count
+  local elb_eni_count
 
   for attempt in {1..60}; do
     v2_count="$(aws elbv2 describe-load-balancers --region "${aws_region}" --query "length(LoadBalancers[?VpcId=='${vpc_id}'])" --output text)"
     classic_count="$(aws elb describe-load-balancers --region "${aws_region}" --query "length(LoadBalancerDescriptions[?VPCId=='${vpc_id}'])" --output text)"
+    target_group_count="$(aws elbv2 describe-target-groups --region "${aws_region}" --query "length(TargetGroups[?VpcId=='${vpc_id}'])" --output text)"
+    managed_sg_count="$(aws ec2 describe-security-groups --region "${aws_region}" \
+      --filters "Name=vpc-id,Values=${vpc_id}" "Name=tag-key,Values=ingress.k8s.aws/resource" \
+      --query 'length(SecurityGroups)' --output text)"
+    elb_eni_count="$(aws ec2 describe-network-interfaces --region "${aws_region}" \
+      --filters "Name=vpc-id,Values=${vpc_id}" "Name=description,Values=ELB *" \
+      --query 'length(NetworkInterfaces)' --output text)"
 
-    if ((v2_count == 0 && classic_count == 0)); then
-      echo "[cleanup-k8s] AWS 외부 Load Balancer 정리 확인 완료"
+    if ((v2_count == 0 && classic_count == 0 && target_group_count == 0 \
+      && managed_sg_count == 0 && elb_eni_count == 0)); then
+      echo "[cleanup-k8s] AWS Load Balancer/Target Group/관리 SG/ELB ENI 정리 확인 완료"
       return
     fi
 
     if ((attempt == 60)); then
-      echo "[cleanup-k8s] AWS Load Balancer 삭제 대기 시간이 초과됐습니다." >&2
-      echo "[cleanup-k8s] ALB/NLB: ${v2_count}, Classic ELB: ${classic_count}" >&2
+      echo "[cleanup-k8s] AWS Load Balancer 관련 리소스 삭제 대기 시간이 초과됐습니다." >&2
+      echo "[cleanup-k8s] ALB/NLB: ${v2_count}, Classic ELB: ${classic_count}, Target Group: ${target_group_count}, 관리 SG: ${managed_sg_count}, ELB ENI: ${elb_eni_count}" >&2
       exit 1
     fi
 
-    echo "[cleanup-k8s] AWS Load Balancer 삭제 대기 중... ALB/NLB=${v2_count}, Classic ELB=${classic_count}"
+    echo "[cleanup-k8s] AWS LB 리소스 삭제 대기 중... ALB/NLB=${v2_count}, Classic=${classic_count}, TG=${target_group_count}, SG=${managed_sg_count}, ENI=${elb_eni_count}"
     sleep 10
   done
 }

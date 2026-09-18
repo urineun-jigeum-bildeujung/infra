@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Terraform DEV 인프라부터 공개 HTTPS까지 준비하는 전체 Apply 진입점이다.
+# Terraform DEV 인프라부터 Public Web 및 Private 관리 HTTPS까지 준비하는 전체 Apply 진입점이다.
 #
 # 사용:
 #   ./tplan.sh
@@ -7,6 +7,7 @@
 #
 # GitOps가 기본 위치(../gitops)가 아니면 GITOPS_DIR로 재정의한다.
 # DNS 적용을 의도적으로 제외할 때만 APPLY_WEB_DNS=false를 사용한다.
+# Management Alias 적용을 제외할 때만 APPLY_MANAGEMENT_DNS=false를 사용한다.
 
 set -Eeuo pipefail
 
@@ -21,6 +22,7 @@ WEB_INGRESS_NAMESPACE="web"
 WEB_INGRESS_NAME="generic-service"
 WEB_ALB_NAME="petflow-dev-public"
 APPLY_WEB_DNS="${APPLY_WEB_DNS:-true}"
+APPLY_MANAGEMENT_DNS="${APPLY_MANAGEMENT_DNS:-true}"
 GITOPS_DIR="${GITOPS_DIR:-${SCRIPT_DIR}/../gitops}"
 LOCK_FILE="/tmp/petflow-dev-infra.lock"
 TEMP_DNS_PLAN=""
@@ -517,6 +519,11 @@ case "${APPLY_WEB_DNS}" in
   true|false) ;;
   *) fail "APPLY_WEB_DNS는 true 또는 false여야 합니다." ;;
 esac
+
+case "${APPLY_MANAGEMENT_DNS}" in
+  true|false) ;;
+  *) fail "APPLY_MANAGEMENT_DNS는 true 또는 false여야 합니다." ;;
+esac
 requested_region="${AWS_REGION:-${AWS_DEFAULT_REGION:-$(aws configure get region --profile "${AWS_PROFILE}" 2>/dev/null || true)}}"
 [[ "${requested_region}" == "${EXPECTED_AWS_REGION}" ]] || fail "잘못된 AWS Region입니다: ${requested_region:-unset} (예상: ${EXPECTED_AWS_REGION})"
 export AWS_REGION="${requested_region}"
@@ -535,7 +542,7 @@ exec 9>"${LOCK_FILE}"
 flock -n 9 || fail "다른 PetFlow 인프라 Apply/Destroy 작업이 실행 중입니다."
 log "인프라 작업 Lock 획득: ${LOCK_FILE}"
 
-log "[1/8] Terraform DEV Apply와 PostgreSQL 이미지 준비"
+log "[1/10] Terraform DEV Apply와 PostgreSQL 이미지 준비"
 PETFLOW_INTERNAL_ORCHESTRATOR=true "${SCRIPT_DIR}/scripts/apply-infra.sh"
 
 cluster_name="$(terraform -chdir="${TERRAFORM_DIR}" output -raw eks_cluster_name)"
@@ -543,7 +550,7 @@ node_group_name="$(terraform -chdir="${TERRAFORM_DIR}" output -raw eks_node_grou
 aws_region="$(terraform -chdir="${TERRAFORM_DIR}" output -raw aws_region)"
 [[ "${aws_region}" == "${EXPECTED_AWS_REGION}" ]] || fail "Terraform output Region 불일치: ${aws_region}"
 
-log "[2/8] EKS ACTIVE와 Private API 준비 대기"
+log "[2/10] EKS ACTIVE와 Private API 준비 대기"
 wait_for_eks_active "${cluster_name}" "${aws_region}"
 aws eks update-kubeconfig \
   --name "${cluster_name}" \
@@ -552,10 +559,10 @@ aws eks update-kubeconfig \
 kubectl config use-context "${KUBECONFIG_CONTEXT}" >/dev/null
 wait_for_eks_readyz
 
-log "[3/8] Worker Node Ready 대기"
+log "[3/10] Worker Node Ready 대기"
 wait_for_worker_nodes "${cluster_name}" "${node_group_name}" "${aws_region}"
 
-log "[4/8] GitOps Bootstrap"
+log "[4/10] GitOps Bootstrap"
 if ! (
   cd "${GITOPS_DIR}"
   task bootstrap:core
@@ -564,16 +571,21 @@ if ! (
   fail "GitOps bootstrap:core 실행에 실패했습니다."
 fi
 
-log "[5/8] AWS Load Balancer Controller GitOps Sync와 Ready 대기"
+log "[5/10] AWS Load Balancer Controller GitOps Sync와 Ready 대기"
 wait_for_alb_controller
 
-log "[6/8] Web Ingress와 ALB active 대기"
+log "[6/10] Web Ingress와 Public ALB active 대기"
 wait_for_web_alb "${aws_region}"
 
-log "[7/8] ALB Target Health 검증"
+log "[7/10] Public Web ALB Target Health 검증"
 verify_target_health "${aws_region}"
 
-log "[8/8] Route53 Alias와 공개 HTTPS"
+log "[8/10] Grafana·Prometheus Internal ALB, Target, Route53, HTTPS"
+APPLY_MANAGEMENT_DNS="${APPLY_MANAGEMENT_DNS}" \
+  PETFLOW_INTERNAL_ORCHESTRATOR=true \
+  "${SCRIPT_DIR}/scripts/configure-management-access.sh"
+
+log "[9/10] Web Route53 Alias와 공개 HTTPS"
 if [[ "${APPLY_WEB_DNS}" == true ]]; then
   apply_web_dns "${aws_region}"
   verify_public_web
@@ -581,6 +593,8 @@ else
   log "APPLY_WEB_DNS=false이므로 DNS Apply를 생략했습니다."
   log "ALB/Target Guard는 통과했습니다. DNS까지 복구하려면 APPLY_WEB_DNS=true로 실행하세요."
 fi
+
+log "[10/10] 최종 상태 요약"
 print_final_summary "${cluster_name}" "${aws_region}"
 
 log "DEV 전체 Apply 완료"

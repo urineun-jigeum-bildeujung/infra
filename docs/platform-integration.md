@@ -65,10 +65,10 @@ Internet-facing ALB는 Public Subnet, internal ALB는 Private Subnet을 선택�
 
 Terraform apply로 IAM Role, Policy, Pod Identity, VPC 태그가 준비되면 GitOps 저장소의
 `platform/10-aws-load-balancer-controller/application.yaml`이 Helm Release를 관리한다.
-클러스터 전체 재구축 시에는 GitOps `main` 최신 상태에서 다음을 실행한다.
+클러스터 생성과 Controller/GitOps/ALB/DNS 복구는 Infra 저장소에서 다음 공개 명령으로 실행한다.
 
 ```bash
-task bootstrap:core
+AWS_PROFILE=ujibil2 ./tapply.sh
 ```
 
 GitOps Application은 다음 계약을 사용한다.
@@ -79,11 +79,11 @@ GitOps Application은 다음 계약을 사용한다.
 4. cert-manager를 통한 Webhook TLS 발급과 갱신
 5. Argo CD automated sync, prune, self-heal 및 Server-Side Apply
 
-`trestore.sh`는 GitOps bootstrap 뒤 Controller와 cert-manager Application `Synced/Healthy`,
-Deployment Available, Certificate Ready와 Webhook Endpoint를 조건 기반으로 기다린다. `scripts/install-alb-controller.sh`와
+`tapply.sh`는 내부에서 GitOps `bootstrap:core`를 실행한 뒤 Controller와 cert-manager Application `Synced/Healthy`,
+Deployment/Pod Ready, 필수 CRD, Certificate와 Webhook Endpoint를 조건 기반으로 기다린다. `scripts/install-alb-controller.sh`와
 `kubernetes/alb-controller/values-dev.yaml`은 GitOps 장애 시의 비상 수동 복구용이며 정상
-복구에서는 실행하지 않는다. GitOps Application이 존재하면 스크립트는 기본적으로 거부하며,
-명시적인 `ALLOW_ALB_CONTROLLER_BREAK_GLASS=true`에만 비상 실행한다.
+Apply에서는 실행하지 않는다. GitOps Application이 존재하면 스크립트는 기본적으로 거부하며,
+명시적인 `BREAK_GLASS_ALB_CONTROLLER=true`에만 비상 실행한다.
 
 ## Terraform Output
 

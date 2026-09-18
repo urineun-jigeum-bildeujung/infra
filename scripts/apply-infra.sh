@@ -1,22 +1,24 @@
 #!/usr/bin/env bash
-# Dev 환경 Terraform 적용 (프로젝트 루트에서 실행, --auto-approve)
+# tapply.sh가 내부적으로 호출하는 DEV Terraform 전용 적용 스크립트다.
 # fmt → validate → apply --auto-approve → CNPG PostgreSQL 이미지 push 순으로 수행한다.
 #
-# ⚠️ 확인 프롬프트 없이 즉시 apply 되므로 실행 전에 tplan.sh 로 계획을 검토하는 것을 권장한다.
-#
-# 사용:
-#   ./tplan.sh   # 먼저 계획 확인
-#   ./tapply.sh  # 이후 적용
+# 팀원은 이 파일을 직접 실행하지 않고 루트의 tapply.sh를 사용한다.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TERRAFORM_DIR="${SCRIPT_DIR}/terraform/environments/dev"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+TERRAFORM_DIR="${ROOT_DIR}/terraform/environments/dev"
+if [[ "${PETFLOW_INTERNAL_ORCHESTRATOR:-false}" != "true" ]]; then
+  echo "[apply-infra] 직접 실행하지 말고 AWS_PROFILE=<profile> ./tapply.sh를 사용하세요." >&2
+  exit 1
+fi
+
 
 cd "${TERRAFORM_DIR}"
 
 if ! aws sts get-caller-identity >/dev/null 2>&1; then
-  echo "[tapply] AWS 인증 정보를 확인해주세요."
+  echo "[apply-infra] AWS 인증 정보를 확인해주세요."
   exit 1
 fi
 
@@ -26,4 +28,4 @@ terraform apply --auto-approve
 
 # ArgoCD가 CNPG Cluster를 동기화하기 전에 pg_bigm 포함 PostgreSQL 이미지를 준비한다.
 # ECR Repository는 위 Terraform apply에서 다른 서비스 Repository와 함께 생성된다.
-"${SCRIPT_DIR}/scripts/build-postgres-image.sh"
+"${SCRIPT_DIR}/build-postgres-image.sh"

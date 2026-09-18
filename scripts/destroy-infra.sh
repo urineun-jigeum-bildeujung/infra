@@ -1,17 +1,24 @@
 #!/usr/bin/env bash
 # ECR/Route53/ACM/S3/이미지 CloudFront/Bootstrap/OAuth Secret/CNPG AWS Backup을 보존하고
-# Terraform 관리 DEV 인프라를 삭제한다.
-# Kubernetes 리소스는 cleanup-k8s.sh에서 별도로 정리한다.
+# Terraform 관리 DEV 인프라를 삭제하는 내부 스크립트다.
+# Kubernetes 리소스는 cleanup-k8s.sh에서 별도로 정리하며,
+# 팀원은 이 파일을 직접 실행하지 않고 루트의 tdestroy.sh를 사용한다.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TERRAFORM_DIR="${SCRIPT_DIR}/terraform/environments/dev"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+TERRAFORM_DIR="${ROOT_DIR}/terraform/environments/dev"
 EXPECTED_AWS_ACCOUNT_ID="297165773875"
 EXPECTED_AWS_REGION="ap-northeast-2"
 CNPG_BACKUP_VAULT_NAME="petflow-dev-cnpg-ebs"
-CNPG_BACKUP_GUARD="${SCRIPT_DIR}/scripts/cnpg-backup-guard.sh"
+CNPG_BACKUP_GUARD="${SCRIPT_DIR}/cnpg-backup-guard.sh"
 CNPG_BACKUP_MANIFEST="${PETFLOW_CNPG_BACKUP_MANIFEST:-}"
+if [[ "${PETFLOW_INTERNAL_ORCHESTRATOR:-false}" != "true" ]]; then
+  echo "[destroy-infra] 직접 실행하지 말고 AWS_PROFILE=<profile> ./tdestroy.sh를 사용하세요." >&2
+  exit 1
+fi
+
 
 require_command() {
   local command_name="$1"
@@ -27,6 +34,7 @@ report_orphan_ebs() {
   local orphan_count
 
   echo "[tdestroy] 고아 EBS 후보 조회(읽기 전용)"
+  # shellcheck disable=SC2016 # JMESPath의 backtick은 AWS CLI 숫자 리터럴이다.
   orphan_count="$(aws ec2 describe-volumes \
     --region "${aws_region}" \
     --filters \
@@ -40,6 +48,7 @@ report_orphan_ebs() {
     return
   fi
 
+  # shellcheck disable=SC2016 # JMESPath의 backtick은 AWS CLI 숫자 리터럴이다.
   aws ec2 describe-volumes \
     --region "${aws_region}" \
     --filters \

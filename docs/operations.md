@@ -38,8 +38,9 @@ aws sts get-caller-identity
 ./tapply.sh
 ```
 
-`tapply.sh`는 `--auto-approve`로 실행되므로 Plan을 먼저 검토한다. 예상하지 않은
-Route53/ACM/S3 교체, EKS/VPC 삭제, IAM 대량 변경이 있으면 Apply하지 않는다.
+`tapply.sh`는 Terraform `--auto-approve` 이후 EKS/Worker, GitOps, ALB/Target,
+Route53과 공개 HTTPS까지 자동 검증한다. Plan에서 예상하지 않은 Route53/ACM/S3 교체,
+EKS/VPC 삭제, IAM 대량 변경이 있으면 실행하지 않는다.
 
 ## Apply 후 기본 검증
 
@@ -174,7 +175,7 @@ Throttling이 반복되는지 확인한다. Metrics Server/Prometheus 배포 전
 실행한다.
 
 ```bash
-AWS_PROFILE=ujibil2 ./alldestroy.sh
+AWS_PROFILE=ujibil2 ./tdestroy.sh
 ```
 
 동작 순서:
@@ -188,25 +189,15 @@ cleanup-k8s.sh
   → Argo CD 동기화 및 AWS 연계 리소스 정리
   → Persistent Workload/PVC/PV/EBS 삭제 확인
   → 동일 Recovery Point 유지 확인
-tdestroy.sh
+scripts/destroy-infra.sh
   → 증거 manifest와 Recovery Point 재검증
   → Terraform 관리 DEV 모듈 삭제
   → 동일 Recovery Point 유지 확인
 ```
 
 Namespace나 PVC가 이미 없으면 성공으로 처리한다. 반대로 Backup Guard, PVC/PV 삭제 또는
-EBS Volume 소멸 확인이 실패하면 Terraform Destroy는 실행되지 않는다. 역할을 분리할 때는
-Windows/WSL에서 Cleanup을 완료하고 VMware에서 Terraform Destroy를 실행한다. Cleanup이
-생성한 manifest를 안전하게 전달하고 아래 환경 변수에 정확한 경로를 지정해야 한다.
-
-```bash
-# Windows/WSL + Tailscale ON
-AWS_PROFILE=ujibil2 ./cleanup-k8s.sh
-
-# VMware
-export PETFLOW_CNPG_BACKUP_MANIFEST=/secure/path/run-id-cnpg-backups.json
-AWS_PROFILE=ujibil2 ./tdestroy.sh
-```
+EBS Volume 소멸 확인이 실패하면 내부 Terraform Destroy는 실행되지 않는다. 생성과 삭제는
+같은 Tailscale/EKS 접근 환경에서 각각 `tapply.sh`, `tdestroy.sh`만 직접 실행한다.
 
 보존 대상:
 

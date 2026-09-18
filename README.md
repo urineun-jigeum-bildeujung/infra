@@ -77,15 +77,18 @@ infra/
 │  ├─ alb-controller/        # 비상 수동 복구용 AWS Load Balancer Controller Helm values
 │  └─ tests/                 # 임시 HTTPS End-to-End 테스트 manifest
 ├─ scripts/
+│  ├─ apply-infra.sh         # tapply.sh가 호출하는 Terraform 전용 내부 작업
+│  ├─ destroy-infra.sh       # tdestroy.sh가 호출하는 Terraform 전용 내부 작업
 │  ├─ install-alb-controller.sh  # GitOps 장애 시에만 쓰는 비상 수동 복구
 │  └─ https-test.sh
 │
 ├─ tinit.sh                  # 프로젝트 루트에서 실행하는 편의 스크립트 (dev 대상)
 ├─ tplan.sh
-├─ tapply.sh                 # --auto-approve
-├─ cleanup-k8s.sh            # Private EKS에서 LB와 Redis/Kafka PVC/PV/EBS 사전 정리
-├─ tdestroy.sh               # 보존 리소스를 제외한 Terraform DEV 인프라 삭제
-└─ alldestroy.sh             # cleanup-k8s.sh → tdestroy.sh 통합 실행
+├─ tapply.sh                 # Terraform → GitOps → ALB → DNS → HTTPS 전체 생성
+├─ tdestroy.sh               # Kubernetes Cleanup → Terraform 전체 삭제
+├─ trestore.sh               # tapply.sh 호환 래퍼(폐기 예정)
+├─ alldestroy.sh             # tdestroy.sh 호환 래퍼(폐기 예정)
+└─ cleanup-k8s.sh            # tdestroy.sh가 호출하는 Kubernetes 정리
 ```
 
 `bootstrap/` 과 `environments/dev/` 는 **생명주기가 다르다**. `./tdestroy.sh`는 Bootstrap,
@@ -121,7 +124,7 @@ terraform/environments/
 - **Terraform 1.10 이상** — S3 Backend native locking (`use_lockfile = true`) 사용을 위해 필요
 - **AWS CLI v2** — `aws sts get-caller-identity` 로 자격 증명 확인 가능해야 함
 - **Bash** — Linux / macOS / WSL. 스크립트는 실행 비트가 이미 `git` 에 등록되어 있어 별도 `chmod +x` 불필요
-- **Go Task v3** — `trestore.sh`의 GitOps core bootstrap 실행에 필요 (`task --version`으로 확인)
+- **Go Task v3** — `tapply.sh`의 GitOps core bootstrap 실행에 필요 (`task --version`으로 확인)
 
 AWS 자격 증명은 **절대 Repository 에 커밋하지 않고**, 로컬에서 AWS CLI Profile / IAM Role / SSO / 환경변수 중 편한 방법으로 구성한다.
 
@@ -158,7 +161,7 @@ aws --version
 task --version      # v3 이상 확인
 ```
 
-`cleanup-k8s.sh`와 `alldestroy.sh`를 실행하는 환경에는 `kubectl`이 설치되어 있고 Tailscale을 통해 EKS Private API에 접근할 수 있어야 한다.
+`tapply.sh`와 `tdestroy.sh`를 실행하는 환경에는 `kubectl`이 설치되어 있고 Tailscale을 통해 EKS Private API에 접근할 수 있어야 한다.
 
 
 macOS 는 `brew install terraform awscli`, Windows 는 `choco install terraform awscli` 또는 WSL Ubuntu 사용 권장.
@@ -226,11 +229,11 @@ git checkout dev && git pull
 git checkout -b feat/<작업이름>
 # ... Terraform 코드 편집 ...
 
-./tplan.sh      # 변경 계획 검토
-./tapply.sh     # 실제 반영 (--auto-approve 포함)
+AWS_PROFILE=ujibil2 ./tplan.sh
+AWS_PROFILE=ujibil2 ./tapply.sh   # DEV 전체를 공개 HTTPS 정상 상태까지 생성
 
 # 테스트 종료 후 전체 정리 (Tailscale/EKS 접근 가능한 환경)
-./alldestroy.sh
+AWS_PROFILE=ujibil2 ./tdestroy.sh
 
 git push -u origin feat/<작업이름>
 gh pr create --base dev
@@ -244,14 +247,16 @@ State locking (`use_lockfile = true`) 덕분에 팀원 A 가 apply 중이면 B �
 |---|---|---|
 | `tinit.sh` | 프로젝트 루트 | 필수 도구 / 인증 / `backend.hcl` 확인 후 `terraform init -backend-config=backend.hcl` |
 | `tplan.sh` | 프로젝트 루트 | AWS 인증 확인 → `terraform fmt` + `validate` + `plan` |
-| `tapply.sh` | 프로젝트 루트 | AWS 인증 확인 → `fmt` + `validate` + `apply --auto-approve` |
-| `cleanup-k8s.sh` | 프로젝트 루트 | CNPG PVC/EBS별 온디맨드 Recovery Point와 Vault Lock 확인 → Argo CD/LB/Persistent Storage 정리 → 동일 Recovery Point 재검증 |
-| `tdestroy.sh` | 프로젝트 루트 | Backup 증거 manifest 재검증 → ECR/Route53/ACM/S3/CNPG AWS Backup을 제외한 DEV Terraform 모듈 삭제 → Recovery Point 사후 검증 |
-| `alldestroy.sh` | 프로젝트 루트 | 한 실행 ID와 Backup 증거 manifest를 공유하며 `cleanup-k8s.sh` → `tdestroy.sh` 순서로 실행 |
+| `tapply.sh` | 프로젝트 루트 | Terraform → EKS/Worker → GitOps → ALB/Target → Route53 → HTTPS 전체 생성·검증 |
+| `tdestroy.sh` | 프로젝트 루트 | Kubernetes/LB/Persistent Storage Cleanup → Backup Guard → DEV Terraform 삭제 |
+| `scripts/apply-infra.sh` | 내부 | Terraform Apply와 CNPG PostgreSQL 이미지 준비. 직접 실행하지 않음 |
+| `scripts/destroy-infra.sh` | 내부 | 보존 대상을 제외한 DEV Terraform 모듈 삭제. 직접 실행하지 않음 |
+| `cleanup-k8s.sh` | 내부 | CNPG Recovery Point/Vault Lock 확인 → Argo CD/LB/Persistent Storage 정리 |
+| `trestore.sh` / `alldestroy.sh` | 호환 래퍼 | 각각 `tapply.sh` / `tdestroy.sh`로 전달하며 폐기 예정 경고 출력 |
 | `scripts/cnpg-backup-guard.sh` | 프로젝트 루트 | CNPG 온디맨드 Backup Job/Recovery Point/태그/보존기한을 검증하고 destroy 증거 manifest 생성·재검증 |
 | `scripts/tag-cnpg-ebs.sh` | 프로젝트 루트 | 기존 `petflow-db` PVC의 EBS만 검증 후 CNPG Backup 태그 부여 (`--apply`) |
 
-`alldestroy.sh`는 별도 확인 입력 없이 즉시 실행되지만, CNPG EBS마다
+`tdestroy.sh`는 별도 확인 입력 없이 즉시 실행되지만, CNPG EBS마다
 `Purpose=pre-cnpg-maintenance`, `Source=petflow-cnpg` 태그가 있는 `COMPLETED`
 온디맨드 Recovery Point가 없거나 Vault Lock/보존기한 검증이 실패하면 Kubernetes
 리소스를 삭제하기 전에 중단한다. 통합 삭제는 Terraform/AWS CLI/`jq`가 준비된

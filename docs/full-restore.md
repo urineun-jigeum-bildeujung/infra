@@ -1,12 +1,11 @@
-# DEV 전체 복구 Runbook
+# DEV 전체 Apply Runbook
 
-EKS를 destroy한 뒤 Terraform, AWS Load Balancer Controller, GitOps, Web ALB와
-Route53 Alias를 순서대로 복구하는 절차다. 일반 Terraform 변경은 기존
-`tapply.sh`를 사용하고, 클러스터 전체 재구축에만 `trestore.sh`를 사용한다.
+`tapply.sh` 한 번으로 Terraform, EKS, GitOps, Web ALB, Route53 Alias와 공개 HTTPS까지
+생성·검증하는 절차다. 신규 생성과 기존 환경 재적용 모두 같은 명령을 사용한다.
 
 ## 사전 요구사항
 
-`trestore.sh`는 실행 초기에 필수 명령과 GitOps Checkout을 검증한다.
+`tapply.sh`는 리소스 변경 전에 필수 명령, AWS Profile/Account/Region과 GitOps Checkout을 검증한다.
 
 ```bash
 task --version
@@ -25,30 +24,27 @@ GitHub CLI 로그인에 의존하지 않는다. Jenkins Credential은 별도로 
 ./tplan.sh
 ```
 
-ALB와 Target Health까지만 복구한다.
+DEV 전체를 공개 HTTPS 정상 상태까지 생성하는 기본 명령은 하나다.
 
 ```bash
-AWS_PROFILE=ujibil2 \
-  ./trestore.sh
+AWS_PROFILE=ujibil2 ./tapply.sh
 ```
 
-Route53 Alias와 공개 HTTPS까지 복구하려면 명시적으로 활성화한다.
+Route53 적용은 기본값이다. 장애 분석 중 DNS 변경만 의도적으로 제외할 때 다음 예외 옵션을 사용한다.
 
 ```bash
-AWS_PROFILE=ujibil2 \
-APPLY_WEB_DNS=true \
-  ./trestore.sh
+APPLY_WEB_DNS=false AWS_PROFILE=ujibil2 ./tapply.sh
 ```
 
 ## 실행 순서
 
-1. `tapply.sh`로 Terraform과 CNPG PostgreSQL 이미지를 준비한다.
+1. 내부 `scripts/apply-infra.sh`로 Terraform과 CNPG PostgreSQL 이미지를 준비한다.
 2. EKS `ACTIVE`, Private API `/readyz`, Worker Node `Ready`를 기다린다.
 3. GitOps 저장소에서 `task bootstrap:core`를 실행한다.
 4. Controller와 cert-manager Application, Deployment, Certificate, Webhook Endpoint가 준비될 때까지 기다린다.
 5. Web Ingress ADDRESS와 `petflow-dev-public` ALB `active`를 기다린다.
 6. ALB에 연결된 모든 Target이 `healthy`인지 확인한다.
-7. 선택적으로 `dev-web-dns` 저장 Plan을 검토·적용한다.
+7. `dev-web-dns` Plan Guard 통과 후 Route53 Alias를 자동 적용하고 사후 `No changes`를 확인한다.
 8. HTTP Redirect와 HTTPS 200을 검증한다.
 
 ## GitOps Checkout Guard
@@ -86,14 +82,14 @@ DNS 단계는 다음 조건을 모두 통과한 뒤에만 실행한다.
 | Ingress, Service, Deployment | GitOps/Argo CD |
 | `leechs.shop` Route53 Alias | `dev-web-dns` Terraform |
 
-Controller Helm Release를 GitOps와 Infra가 동시에 관리하지 않는다. 정상 복구 경로는
-GitOps의 `platform/10-aws-load-balancer-controller/application.yaml`이며, `trestore.sh`는
-직접 Helm 설치를 실행하지 않고 Application, Deployment, Certificate, Webhook Endpoint 상태를 기다린다.
+Controller Helm Release를 GitOps와 Infra가 동시에 관리하지 않는다. 정상 Apply 경로는
+GitOps의 `platform/10-aws-load-balancer-controller/application.yaml`이며, `tapply.sh`는
+직접 Helm 설치를 실행하지 않고 Application, Ready Pod, CRD, Certificate, Webhook Endpoint 상태를 기다린다.
 `scripts/install-alb-controller.sh`는 GitOps 장애를 진단한 뒤에만 사용하는 비상 도구이며,
 GitOps Application이 존재하면 기본적으로 실행을 거부한다.
 
 ```bash
-ALLOW_ALB_CONTROLLER_BREAK_GLASS=true \
+BREAK_GLASS_ALB_CONTROLLER=true \
 AWS_PROFILE=ujibil2 \
   ./scripts/install-alb-controller.sh
 ```

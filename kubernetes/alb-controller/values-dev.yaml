@@ -1,7 +1,7 @@
 # AWS Load Balancer Controller - petflow DEV 비상 수동 복구용
 # 정상 운영 값은 gitops/platform/10-aws-load-balancer-controller/application.yaml에서 관리한다.
 # GitOps와 이 Helm 값을 동시에 적용하지 않는다.
-# Application 존재 시 설치 스크립트는 ALLOW_ALB_CONTROLLER_BREAK_GLASS=true 없이는 거부한다.
+# Application 존재 시 설치 스크립트는 BREAK_GLASS_ALB_CONTROLLER=true 없이는 거부한다.
 #
 # clusterName, region, vpcId는 install-alb-controller.sh가 Terraform output에서
 # 읽어서 --set으로 전달한다. VPC가 재생성돼도 이 파일을 수정할 필요가 없다.

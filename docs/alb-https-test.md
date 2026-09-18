@@ -20,12 +20,10 @@ Client → Route53 → ALB(HTTPS/ACM) → Ingress → Service → nginx Pod
 - leechs.shop, *.leechs.shop ACM 인증서가 ISSUED
 - Terraform DEV Backend 초기화 및 output 조회 가능
 
-Controller가 없으면 GitOps `main` 최신 상태에서 먼저 bootstrap한다.
+Controller가 없거나 DEV 환경을 새로 생성할 때는 Infra의 전체 Apply 명령을 실행한다.
 
 ~~~bash
-cd /home/user1/project/tong-p/gitops
-task bootstrap:core
-kubectl get application aws-load-balancer-controller -n argocd
+AWS_PROFILE=ujibil2 ./tapply.sh
 ~~~
 
 `scripts/install-alb-controller.sh`는 GitOps 장애 시에만 사용하는 비상 복구 도구다.

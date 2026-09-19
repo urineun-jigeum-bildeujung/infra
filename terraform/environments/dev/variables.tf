@@ -240,6 +240,24 @@ variable "cnpg_ebs_snapshot_retention_days" {
   }
 }
 
+variable "cloudtrail_s3_retention_days" {
+  description = "CloudTrail 로그 S3 보관 일수. 지금은 짧게 시작하고 이후 값만 늘린다(예: 1년 요구 시 365)."
+  type        = number
+  default     = 30
+}
+
+variable "cloudtrail_cloudwatch_retention_days" {
+  description = "CloudTrail 로그 CloudWatch Logs 보관 일수"
+  type        = number
+  default     = 30
+}
+
+variable "cloudtrail_admin_role_arns" {
+  description = "CloudTrail 로그 버킷의 삭제/정책변경이 허용되는 관리자 Role ARN 목록. apply 전 실제 값 필요."
+  type        = list(string)
+  default     = []
+}
+
 variable "ecr_repository_names" {
   description = "생성할 ECR Repository 이름 목록. MSA 서비스 단위로 지정한다."
   type        = list(string)

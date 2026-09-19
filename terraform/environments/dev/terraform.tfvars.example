@@ -93,6 +93,22 @@ cnpg_ebs_snapshot_schedule          = "cron(0 19 * * ? *)" # 매일 04:00 KST
 cnpg_ebs_snapshot_retention_days    = 7
 
 # =============================================================================
+# CloudTrail
+# =============================================================================
+# 로그 버킷 삭제/정책변경이 허용되는 관리자 IAM ARN. 여기 없는 주체는 전부 차단된다.
+# 지금은 팀 계정 5개를 전부 등록해두고, 추후 역할별로 좁힐 예정(petflow-github-actions-terraform
+# 같은 배포 주체가 정해지면 그쪽으로 축소 검토).
+cloudtrail_admin_role_arns = [
+  "arn:aws:iam::297165773875:user/ujibil1",
+  "arn:aws:iam::297165773875:user/ujibil2",
+  "arn:aws:iam::297165773875:user/ujibil3",
+  "arn:aws:iam::297165773875:user/ujibil4",
+  "arn:aws:iam::297165773875:user/ujibil5",
+]
+cloudtrail_s3_retention_days         = 30
+cloudtrail_cloudwatch_retention_days = 30
+
+# =============================================================================
 # ECR
 # =============================================================================
 # Source of Truth: 백엔드(sever) dev 브랜치의 services/ 디렉터리 + 프론트엔드(web) 등

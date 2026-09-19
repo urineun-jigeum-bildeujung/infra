@@ -225,6 +225,22 @@ module "workload_iam" {
   ]
 }
 
+# AWS 계정/리전 전체의 관리 API 호출(CloudTrail) 감사 로그.
+# 주의: cloudtrail_admin_role_arns가 비어있으면 로그 버킷 삭제/정책변경 Deny가
+# 모든 주체(terraform 실행 계정 포함)에 적용될 수 있으므로, apply 전 실제 관리자
+# Role ARN을 tfvars에 채워야 한다.
+module "cloudtrail" {
+  source = "../../modules/cloudtrail"
+
+  project_name   = var.project_name
+  environment    = var.environment
+  aws_account_id = data.aws_caller_identity.current.account_id
+
+  s3_retention_days             = var.cloudtrail_s3_retention_days
+  cloudwatch_log_retention_days = var.cloudtrail_cloudwatch_retention_days
+  allowed_admin_role_arns       = var.cloudtrail_admin_role_arns
+}
+
 # Petflow CNPG EBS만 태그로 선택해 일일 Recovery Point를 생성한다.
 # 현재 PVC는 운영 절차에서 한 번 태그하고, 새 PVC는 GitOps gp3-cnpg StorageClass가
 # 같은 태그를 생성 시점에 자동으로 부여한다.

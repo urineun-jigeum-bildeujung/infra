@@ -108,9 +108,9 @@ data "aws_iam_policy_document" "bucket_policy" {
     resources = [aws_s3_bucket.this.arn]
   }
 
-  # 관리자 Role(var.allowed_admin_role_arns) 외에는 로그 삭제/버킷 정책·라이프사이클 변경을 차단한다.
-  # 주의: allowed_admin_role_arns가 비어있으면 이 Deny가 모든 주체(테라폼 실행 계정 포함)에
-  # 적용될 수 있으므로, apply 전 반드시 실제 관리자 Role ARN을 채워야 한다.
+  # 관리자 IAM User/Role(var.allowed_admin_role_arns) 외에는 로그 삭제/버킷 정책·라이프사이클 변경을 차단한다.
+  # allowed_admin_role_arns는 variables.tf에서 비어 있지 않은 IAM User/Role ARN 목록만
+  # 허용한다. 따라서 빈 NotPrincipal을 AWS에 전송하기 전에 Plan 단계에서 실패한다.
   statement {
     sid    = "DenyLogTamperingByNonAdmins"
     effect = "Deny"

@@ -253,9 +253,16 @@ variable "cloudtrail_cloudwatch_retention_days" {
 }
 
 variable "cloudtrail_admin_role_arns" {
-  description = "CloudTrail 로그 버킷의 삭제/정책변경이 허용되는 관리자 Role ARN 목록. apply 전 실제 값 필요."
+  description = "CloudTrail 로그 버킷의 삭제/정책변경이 허용되는 관리자 IAM User/Role ARN 목록. apply 전 실제 값 필요."
   type        = list(string)
-  default     = []
+
+  validation {
+    condition = length(var.cloudtrail_admin_role_arns) > 0 && alltrue([
+      for arn in var.cloudtrail_admin_role_arns :
+      can(regex("^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:(user|role)/[A-Za-z0-9+=,.@_/-]+$", arn))
+    ])
+    error_message = "cloudtrail_admin_role_arns에는 비어 있지 않은 IAM User/Role ARN 목록을 지정해야 합니다."
+  }
 }
 
 variable "ecr_repository_names" {

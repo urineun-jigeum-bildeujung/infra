@@ -1,5 +1,5 @@
 variable "aws_region" {
-  description = "Management Internal ALB가 배포된 AWS Region"
+  description = "Grafana Public ALB가 배포된 AWS Region"
   type        = string
 }
 
@@ -35,8 +35,9 @@ variable "grafana_hostname" {
 }
 
 variable "prometheus_hostname" {
-  description = "Prometheus에 연결할 FQDN"
+  description = "이전 Prometheus Alias State 호환용 FQDN(신규 레코드 생성 안 함)"
   type        = string
+  default     = "prometheus.leechs.shop"
 
   validation {
     condition     = startswith(var.prometheus_hostname, "prometheus.") && endswith(var.prometheus_hostname, var.domain_name)
@@ -45,8 +46,9 @@ variable "prometheus_hostname" {
 }
 
 variable "management_alb_name" {
-  description = "AWS Load Balancer Controller가 생성한 Management Internal ALB 이름"
+  description = "이전 tfvars 호환용 Management ALB 이름(신규 조회 안 함)"
   type        = string
+  default     = "petflow-dev-management"
 
   validation {
     condition     = var.management_alb_name == "petflow-dev-management"
@@ -54,8 +56,25 @@ variable "management_alb_name" {
   }
 }
 
+variable "public_alb_name" {
+  description = "Grafana가 합류하는 기존 Public ALB 이름"
+  type        = string
+  default     = "petflow-dev-public"
+
+  validation {
+    condition     = var.public_alb_name == "petflow-dev-public"
+    error_message = "public_alb_name은 petflow-dev-public이어야 합니다."
+  }
+}
+
+variable "public_alb_ingress_stack" {
+  description = "Public ALB의 ingress.k8s.aws/stack 태그 기대값"
+  type        = string
+  default     = "petflow-public"
+}
+
 variable "alb_ingress_stack" {
-  description = "ALB의 ingress.k8s.aws/stack 태그 기대값"
+  description = "이전 tfvars 호환용 Management ALB stack 값(신규 조회 안 함)"
   type        = string
   default     = "petflow-dev-management"
 }

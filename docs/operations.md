@@ -39,8 +39,7 @@ aws sts get-caller-identity
 ```
 
 `tapply.sh`는 Terraform `--auto-approve` 이후 EKS/Worker, GitOps, Public Web ALB와
-Grafana/Prometheus Internal ALB/Target, Route53 및 HTTPS까지 자동 검증한다. 관리 도메인은
-Tailscale 경로에서만 접속할 수 있다. 상세 Guard는
+Grafana Public ALB/Target, Route53·HTTPS 및 Prometheus 비공개 정책까지 자동 검증한다. Grafana는 Tailscale 없이 HTTPS와 로그인으로 접속하며, Prometheus는 ClusterIP 전용이다. 상세 Guard는
 [management-observability-access.md](management-observability-access.md)를 따른다. Plan에서 예상하지 않은 Route53/ACM/S3 교체,
 EKS/VPC 삭제, IAM 대량 변경이 있으면 실행하지 않는다.
 

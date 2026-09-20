@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Terraform DEV 인프라부터 Public Web 및 Private 관리 HTTPS까지 준비하는 전체 Apply 진입점이다.
+# Terraform DEV 인프라부터 Public Web·Grafana 및 Private Prometheus까지 준비하는 전체 Apply 진입점이다.
 #
 # 사용:
 #   ./tplan.sh
@@ -7,7 +7,7 @@
 #
 # GitOps가 기본 위치(../gitops)가 아니면 GITOPS_DIR로 재정의한다.
 # DNS 적용을 의도적으로 제외할 때만 APPLY_WEB_DNS=false를 사용한다.
-# Management Alias 적용을 제외할 때만 APPLY_MANAGEMENT_DNS=false를 사용한다.
+# Observability Alias 적용을 제외할 때만 APPLY_OBSERVABILITY_DNS=false를 사용한다.
 
 set -Eeuo pipefail
 
@@ -22,7 +22,7 @@ WEB_INGRESS_NAMESPACE="web"
 WEB_INGRESS_NAME="generic-service"
 WEB_ALB_NAME="petflow-dev-public"
 APPLY_WEB_DNS="${APPLY_WEB_DNS:-true}"
-APPLY_MANAGEMENT_DNS="${APPLY_MANAGEMENT_DNS:-true}"
+APPLY_OBSERVABILITY_DNS="${APPLY_OBSERVABILITY_DNS:-${APPLY_MANAGEMENT_DNS:-true}}"
 GITOPS_DIR="${GITOPS_DIR:-${SCRIPT_DIR}/../gitops}"
 LOCK_FILE="/tmp/petflow-dev-infra.lock"
 TEMP_DNS_PLAN=""
@@ -520,9 +520,9 @@ case "${APPLY_WEB_DNS}" in
   *) fail "APPLY_WEB_DNS는 true 또는 false여야 합니다." ;;
 esac
 
-case "${APPLY_MANAGEMENT_DNS}" in
+case "${APPLY_OBSERVABILITY_DNS}" in
   true|false) ;;
-  *) fail "APPLY_MANAGEMENT_DNS는 true 또는 false여야 합니다." ;;
+  *) fail "APPLY_OBSERVABILITY_DNS는 true 또는 false여야 합니다." ;;
 esac
 requested_region="${AWS_REGION:-${AWS_DEFAULT_REGION:-$(aws configure get region --profile "${AWS_PROFILE}" 2>/dev/null || true)}}"
 [[ "${requested_region}" == "${EXPECTED_AWS_REGION}" ]] || fail "잘못된 AWS Region입니다: ${requested_region:-unset} (예상: ${EXPECTED_AWS_REGION})"
@@ -580,10 +580,10 @@ wait_for_web_alb "${aws_region}"
 log "[7/10] Public Web ALB Target Health 검증"
 verify_target_health "${aws_region}"
 
-log "[8/10] Grafana·Prometheus Internal ALB, Target, Route53, HTTPS"
-APPLY_MANAGEMENT_DNS="${APPLY_MANAGEMENT_DNS}" \
+log "[8/10] Grafana Public ALB Target·Route53·HTTPS 및 Prometheus 비공개 Guard"
+APPLY_OBSERVABILITY_DNS="${APPLY_OBSERVABILITY_DNS}" \
   PETFLOW_INTERNAL_ORCHESTRATOR=true \
-  "${SCRIPT_DIR}/scripts/configure-management-access.sh"
+  "${SCRIPT_DIR}/scripts/configure-observability-access.sh"
 
 log "[9/10] Web Route53 Alias와 공개 HTTPS"
 if [[ "${APPLY_WEB_DNS}" == true ]]; then

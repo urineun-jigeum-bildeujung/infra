@@ -152,12 +152,12 @@ AWS Load Balancer Controller로 ALB를 생성한 뒤 필요한 호스트만 연�
 | Frontend | `leechs.shop` |
 | Backend API | `api.leechs.shop` |
 | Grafana | `grafana.leechs.shop` |
-| Prometheus | `prometheus.leechs.shop` |
+| Prometheus | 외부 도메인 없음(ClusterIP 전용) |
 | Argo CD | `argocd.leechs.shop` |
 | Jenkins | `jenkins.leechs.shop` |
 
-Grafana와 Prometheus는 `petflow-dev-management` Internal ALB 하나를 공유하며
-`10.0.0.0/20`에서만 접근한다. Route53 Alias와 자동화 기준은
+Grafana는 기존 `petflow-dev-public` ALB를 재사용해 HTTPS와 로그인을 필수로 공개한다.
+Prometheus는 Ingress와 외부 DNS 없이 ClusterIP로만 제공한다. 자동화 기준은
 [management-observability-access.md](management-observability-access.md)를 따른다.
 
 Ingress에는 HTTPS 443 리스너와 ACM ARN을 지정하고, Route53에는 ALB DNS

@@ -1,18 +1,13 @@
-# DEV Management DNS
+# DEV Observability DNS
 
-Kubernetes AWS Load Balancer Controller가 만든 `petflow-dev-management`
-Internal ALB를 다음 Route53 A Alias에 연결한다.
+기존 `dev-management-dns` State 주소를 유지하면서 접근 정책을 전환한다.
 
-- `grafana.leechs.shop`
-- `prometheus.leechs.shop`
+- `grafana.leechs.shop`: 기존 `petflow-dev-public` ALB의 Route53 A Alias
+- `prometheus.leechs.shop`: 리소스를 제거해 외부 DNS를 제공하지 않음
 
-이 스택은 GitOps가 두 Ingress와 Internal ALB를 만든 이후에만 Plan/Apply할 수
-있으므로 코어 DEV 및 Web DNS와 별도 State를 사용한다. ALB DNS, Canonical
-Hosted Zone ID와 현재 EKS VPC는 AWS Data Source로 조회하며 하드코딩하지 않는다.
-
-Public Hosted Zone의 이름은 외부에서도 조회될 수 있지만 Alias가 반환하는 주소는
-Private IP다. ALB inbound CIDR도 `10.0.0.0/20`으로 제한하므로 Tailscale 또는
-VPC 경로 없이 접속할 수 없다.
+디렉터리 이름과 Backend State는 이전 Internal ALB 구성에서 생성한 Alias를 안전하게
+업데이트·삭제하기 위해 유지한다. ALB DNS와 Canonical Hosted Zone ID는 `data.aws_lb.public`으로
+조회하며 하드코딩하지 않는다.
 
 ```bash
 cp backend.hcl.example backend.hcl
@@ -23,6 +18,13 @@ terraform plan
 terraform apply
 ```
 
-Alias는 일반 DEV destroy 대상에 포함하지 않는다. ALB가 재생성되면
-`tapply.sh`가 이 스택을 적용해 새 ALB DNS로 갱신한다. 수동 Route53 UPSERT는
-하지 않는다.
+첫 전환 Plan의 허용 변경은 `aws_route53_record.grafana`의 in-place update와
+`aws_route53_record.prometheus`의 delete뿐이다. 이후 Plan은 `No changes`여야 한다.
+`tapply.sh`는 Grafana Ingress와 Target Health를 먼저 확인한 다음 이 State를 적용한다.
+
+Prometheus UI가 필요하면 외부 DNS 대신 다음 포트포워딩을 사용한다.
+
+```bash
+kubectl --context petflow-dev -n observability port-forward \
+  svc/kube-prometheus-stack-prometheus 9090:9090
+```

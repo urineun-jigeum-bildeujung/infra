@@ -277,6 +277,12 @@ variable "cloudtrail_admin_role_arns" {
   }
 }
 
+variable "vpc_flow_log_s3_retention_days" {
+  description = "VPC Flow Log S3 보관 일수. 지금은 짧게 시작하고 이후 값만 늘린다(예: 1년 요구 시 365)."
+  type        = number
+  default     = 30
+}
+
 variable "ecr_repository_names" {
   description = "생성할 ECR Repository 이름 목록. MSA 서비스 단위로 지정한다."
   type        = list(string)

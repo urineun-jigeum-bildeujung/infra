@@ -20,6 +20,7 @@ Usage:
 Options:
   --region REGION
   --vault VAULT
+  --destroy-run-id RUN_ID     schema v2 manifest의 실행 ID 검증
   --volume-id VOLUME_ID       capture에서 여러 번 지정 가능
   --manifest FILE
   --phase NAME                verify 증거 단계 이름
@@ -49,6 +50,7 @@ backup_vault="${PETFLOW_BACKUP_VAULT:-${DEFAULT_BACKUP_VAULT}}"
 manifest=""
 phase="manual-verify"
 min_remaining_hours="${PETFLOW_BACKUP_MIN_REMAINING_HOURS:-${DEFAULT_MIN_REMAINING_HOURS}}"
+destroy_run_id="${PETFLOW_DESTROY_RUN_ID:-}"
 volume_ids=()
 
 while (($# > 0)); do
@@ -59,6 +61,10 @@ while (($# > 0)); do
       ;;
     --vault)
       backup_vault="$2"
+      shift 2
+      ;;
+    --destroy-run-id)
+      destroy_run_id="$2"
       shift 2
       ;;
     --volume-id)
@@ -276,6 +282,91 @@ capture_manifest() {
   echo "[cnpg-backup-guard] 증거 manifest 저장: ${manifest}"
 }
 
+verify_manifest_v2() {
+  local manifest_account manifest_region manifest_vault manifest_run_id
+  local manifest_started_epoch required_epoch
+  local volume_id job_id recovery_point_arn resource_arn completion_date delete_at
+  local job_json recovery_json tags_json status
+  local resource_count unique_volume_count unique_job_count unique_recovery_count
+  local manifest_volumes expected_volumes
+
+  jq -e '
+    .schemaVersion == "2" and
+    (.destroyRunId | type == "string" and length > 0) and
+    (.backupStartedAt | type == "string" and length > 0) and
+    (.resources | type == "array" and length > 0) and
+    all(.resources[];
+      (.volumeId | test("^vol-[0-9a-f]+$")) and
+      (.backupJobId | type == "string" and length > 0) and
+      (.recoveryPointArn | type == "string" and length > 0)
+    )
+  ' "${manifest}" >/dev/null || fail "schema v2 Backup manifest 형식이 올바르지 않습니다: ${manifest}"
+
+  manifest_account="$(jq -r '.accountId' "${manifest}")"
+  manifest_region="$(jq -r '.region' "${manifest}")"
+  manifest_vault="$(jq -r '.backupVaultName' "${manifest}")"
+  manifest_run_id="$(jq -r '.destroyRunId' "${manifest}")"
+
+  [[ "${manifest_account}" == "${caller_account}" ]] || fail "manifest AWS Account가 현재 계정과 다릅니다."
+  [[ "${manifest_region}" == "${aws_region}" ]] || fail "manifest Region이 현재 Region과 다릅니다."
+  [[ "${manifest_vault}" == "${backup_vault}" ]] || fail "manifest Backup Vault가 현재 Vault와 다릅니다."
+  if [[ -n "${destroy_run_id}" && "${manifest_run_id}" != "${destroy_run_id}" ]]; then
+    fail "manifest DestroyRunId가 현재 실행과 다릅니다: ${manifest_run_id}"
+  fi
+
+  resource_count="$(jq '.resources | length' "${manifest}")"
+  unique_volume_count="$(jq '[.resources[].volumeId] | unique | length' "${manifest}")"
+  unique_job_count="$(jq '[.resources[].backupJobId] | unique | length' "${manifest}")"
+  unique_recovery_count="$(jq '[.resources[].recoveryPointArn] | unique | length' "${manifest}")"
+  [[ "${resource_count}" == "${unique_volume_count}" ]] || fail "manifest에 중복 EBS Volume이 있습니다."
+  [[ "${resource_count}" == "${unique_job_count}" ]] || fail "manifest에 중복 Backup Job이 있습니다."
+  [[ "${resource_count}" == "${unique_recovery_count}" ]] || fail "manifest에 중복 Recovery Point가 있습니다."
+
+  if (("${#volume_ids[@]}" > 0)); then
+    manifest_volumes="$(jq -c '[.resources[].volumeId] | sort | unique' "${manifest}")"
+    expected_volumes="$(printf '%s\n' "${volume_ids[@]}" | jq -Rsc 'split("\n") | map(select(length > 0)) | sort | unique')"
+    [[ "${manifest_volumes}" == "${expected_volumes}" ]] ||       fail "현재 CNPG EBS 목록과 manifest EBS 목록이 다릅니다: expected=${expected_volumes}, manifest=${manifest_volumes}"
+  fi
+
+  manifest_started_epoch="$(date -d "$(jq -r '.backupStartedAt' "${manifest}")" +%s)" ||     fail "manifest backupStartedAt을 해석할 수 없습니다."
+  required_epoch="$(( $(date +%s) + min_remaining_hours * 3600 ))"
+
+  while IFS=$'\t' read -r volume_id job_id recovery_point_arn; do
+    resource_arn="arn:aws:ec2:${aws_region}:${caller_account}:volume/${volume_id}"
+    job_json="$(aws backup describe-backup-job --region "${aws_region}" --backup-job-id "${job_id}" --output json)" ||       fail "${phase}: Backup Job 조회 실패: volume=${volume_id}, job=${job_id}"
+    status="$(jq -r '.State' <<<"${job_json}")"
+    [[ "${status}" == "COMPLETED" ]] ||       fail "${phase}: Backup Job이 COMPLETED가 아닙니다: volume=${volume_id}, job=${job_id}, state=${status}"
+    [[ "$(jq -r '.ResourceArn' <<<"${job_json}")" == "${resource_arn}" ]] ||       fail "${phase}: Backup Job 원본 EBS ARN이 다릅니다: ${volume_id}"
+    [[ "$(jq -r '.BackupVaultName' <<<"${job_json}")" == "${backup_vault}" ]] ||       fail "${phase}: Backup Job Vault가 다릅니다: ${volume_id}"
+    [[ "$(jq -r '.RecoveryPointArn' <<<"${job_json}")" == "${recovery_point_arn}" ]] ||       fail "${phase}: Backup Job Recovery Point ARN이 manifest와 다릅니다: ${volume_id}"
+
+    completion_date="$(jq -r '.CompletionDate // empty' <<<"${job_json}")"
+    [[ -n "${completion_date}" ]] || fail "${phase}: Backup Job 완료 시각이 없습니다: ${volume_id}"
+    (( $(date -d "${completion_date}" +%s) >= manifest_started_epoch )) ||       fail "${phase}: 이번 실행 이전 Backup Job입니다: ${volume_id}"
+
+    recovery_json="$(aws backup describe-recovery-point --region "${aws_region}"       --backup-vault-name "${backup_vault}" --recovery-point-arn "${recovery_point_arn}" --output json)" ||       fail "${phase}: Recovery Point 조회 실패: ${volume_id}"
+    [[ "$(jq -r '.Status' <<<"${recovery_json}")" == "COMPLETED" ]] ||       fail "${phase}: Recovery Point가 COMPLETED가 아닙니다: ${volume_id}"
+    [[ "$(jq -r '.ResourceArn' <<<"${recovery_json}")" == "${resource_arn}" ]] ||       fail "${phase}: Recovery Point 원본 EBS ARN이 다릅니다: ${volume_id}"
+    delete_at="$(jq -r '.CalculatedLifecycle.DeleteAt // empty' <<<"${recovery_json}")"
+    [[ -n "${delete_at}" ]] || fail "${phase}: Recovery Point 삭제 예정 시각이 없습니다: ${volume_id}"
+    (( $(date -d "${delete_at}" +%s) > required_epoch )) ||       fail "${phase}: Recovery Point 보존시간이 ${min_remaining_hours}시간보다 짧습니다: ${volume_id}"
+
+    tags_json="$(aws backup list-tags --region "${aws_region}" --resource-arn "${recovery_point_arn}" --output json)" ||       fail "${phase}: Recovery Point 태그 조회 실패: ${volume_id}"
+    jq -e --arg volume "${volume_id}" --arg run "${manifest_run_id}" '
+      .Tags.Project == "petflow" and
+      .Tags.Environment == "dev" and
+      .Tags.BackupType == "pre-destroy" and
+      .Tags.SourceVolumeId == $volume and
+      .Tags.DestroyRunId == $run and
+      .Tags.CreatedBy == "tdestroy.sh" and
+      .Tags.ProtectedResource == "cnpg"
+    ' <<<"${tags_json}" >/dev/null || fail "${phase}: Recovery Point 필수 태그가 다릅니다: ${volume_id}"
+
+    echo "[cnpg-backup-guard] ${phase} 유지 확인: ${volume_id}, job=${job_id}, recoveryPoint=${recovery_point_arn}"
+  done < <(jq -r '.resources[] | [.volumeId, .backupJobId, .recoveryPointArn] | @tsv' "${manifest}")
+
+  echo "[cnpg-backup-guard] ${phase} schema v2 검증 완료: ${resource_count}개, runId=${manifest_run_id}"
+}
 verify_manifest() {
   local manifest_account
   local manifest_region
@@ -287,6 +378,13 @@ verify_manifest() {
   local resource_count
 
   [[ -f "${manifest}" ]] || fail "Backup 증거 manifest가 없습니다: ${manifest}"
+  if [[ "$(jq -r '.schemaVersion // empty' "${manifest}")" == "2" ]]; then
+    verify_manifest_v2
+    return
+  fi
+
+  [[ -z "${destroy_run_id}" ]] || \
+    fail "자동 Destroy에서는 schema v2 manifest만 허용합니다: ${manifest}"
   jq -e '.schemaVersion == "1" and (.resources | type == "array")' "${manifest}" >/dev/null || \
     fail "Backup 증거 manifest 형식이 올바르지 않습니다: ${manifest}"
 

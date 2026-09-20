@@ -13,8 +13,7 @@ CNPG_NAMESPACE="database"
 CNPG_BACKUP_VAULT_NAME="petflow-dev-cnpg-ebs"
 CNPG_BACKUP_GUARD="${SCRIPT_DIR}/scripts/cnpg-backup-guard.sh"
 DESTROY_RUN_ID="${PETFLOW_DESTROY_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
-DESTROY_EVIDENCE_DIR="${PETFLOW_DESTROY_EVIDENCE_DIR:-${SCRIPT_DIR}/.destroy-evidence}"
-CNPG_BACKUP_MANIFEST="${PETFLOW_CNPG_BACKUP_MANIFEST:-${DESTROY_EVIDENCE_DIR}/${DESTROY_RUN_ID}-cnpg-backups.json}"
+CNPG_BACKUP_MANIFEST="${PETFLOW_CNPG_BACKUP_MANIFEST:-}"
 # EBS PVC를 사용하는 모든 DEV Namespace를 추적한다. 이 목록에서 빠진 Namespace는
 # EKS 삭제 전에 PV/EBS 정리를 확인할 수 없어 고아 Volume이 남을 수 있다.
 PERSISTENT_NAMESPACES=("${CNPG_NAMESPACE}" redis kafka jenkins observability)
@@ -24,6 +23,23 @@ KUBECTL=()
 TRACKED_PVS=()
 TRACKED_EBS_VOLUMES=()
 TRACKED_CNPG_EBS_VOLUMES=()
+
+while (($# > 0)); do
+  case "$1" in
+    --backup-manifest)
+      CNPG_BACKUP_MANIFEST="$2"
+      shift 2
+      ;;
+    -h|--help)
+      echo "Usage: cleanup-k8s.sh --backup-manifest ABSOLUTE_PATH"
+      exit 0
+      ;;
+    *)
+      echo "[cleanup-k8s] 알 수 없는 인자입니다: $1" >&2
+      exit 1
+      ;;
+  esac
+done
 
 cleanup_temp_files() {
   if [[ -n "${TEMP_KUBECONFIG}" && -f "${TEMP_KUBECONFIG}" ]]; then
@@ -141,30 +157,20 @@ track_persistent_storage() {
   done
 }
 
-capture_cnpg_backup_evidence() {
-  local -a guard_args=(
-    capture
-    --region "${aws_region}"
-    --vault "${CNPG_BACKUP_VAULT_NAME}"
-    --manifest "${CNPG_BACKUP_MANIFEST}"
-  )
+
+verify_cnpg_backup_evidence() {
+  local phase="$1"
   local volume_id
+  local -a guard_args=(
+    verify --region "${aws_region}" --vault "${CNPG_BACKUP_VAULT_NAME}"
+    --manifest "${CNPG_BACKUP_MANIFEST}" --destroy-run-id "${DESTROY_RUN_ID}" --phase "${phase}"
+  )
 
   for volume_id in "${TRACKED_CNPG_EBS_VOLUMES[@]}"; do
     guard_args+=(--volume-id "${volume_id}")
   done
 
   bash "${CNPG_BACKUP_GUARD}" "${guard_args[@]}"
-}
-
-verify_cnpg_backup_evidence() {
-  local phase="$1"
-
-  bash "${CNPG_BACKUP_GUARD}" verify \
-    --region "${aws_region}" \
-    --vault "${CNPG_BACKUP_VAULT_NAME}" \
-    --manifest "${CNPG_BACKUP_MANIFEST}" \
-    --phase "${phase}"
 }
 
 delete_strimzi_resources() {
@@ -251,6 +257,7 @@ CNPG_RESOURCES
 
 delete_alloy_resources() {
   local crd_resource
+  local operator_finalizers
 
   if ! namespace_exists observability; then
     return 0
@@ -267,6 +274,19 @@ delete_alloy_resources() {
     echo "[cleanup-k8s] Alloy Resource 삭제 (Operator 삭제 전)"
     "${KUBECTL[@]}" delete alloys.collectors.grafana.com --all \
       --namespace observability --ignore-not-found --wait=true --timeout=10m
+  fi
+
+  # Alloy CR 삭제 후 Operator Deployment에 남는 자기 관리 finalizer는 더 이상
+  # 처리할 컨트롤러가 없어 delete all을 멈출 수 있다. CR이 사라진 뒤에만 제거한다.
+  if "${KUBECTL[@]}" get deployment alloy-alloy-operator \
+    --namespace observability >/dev/null 2>&1; then
+    operator_finalizers="$("${KUBECTL[@]}" get deployment alloy-alloy-operator \
+      --namespace observability -o jsonpath='{.metadata.finalizers}')"
+    if [[ "${operator_finalizers}" == *k8s.grafana.com/finalizer* ]]; then
+      "${KUBECTL[@]}" patch deployment alloy-alloy-operator --namespace observability \
+        --type=merge -p '{"metadata":{"finalizers":[]}}' >/dev/null
+      echo "[cleanup-k8s] Alloy Operator의 고립된 finalizer 제거 완료"
+    fi
   fi
 }
 
@@ -436,6 +456,16 @@ require_command terraform
 require_command kubectl
 require_command jq
 
+if [[ -z "${CNPG_BACKUP_MANIFEST}" || "${CNPG_BACKUP_MANIFEST}" != /* ]]; then
+  echo "[cleanup-k8s] 절대 경로 --backup-manifest가 필요합니다. 단독 실행으로 Backup Guard를 우회할 수 없습니다." >&2
+  exit 1
+fi
+
+if [[ ! -f "${CNPG_BACKUP_MANIFEST}" ]]; then
+  echo "[cleanup-k8s] CNPG Backup manifest가 없습니다: ${CNPG_BACKUP_MANIFEST}" >&2
+  exit 1
+fi
+
 if [[ ! -f "${CNPG_BACKUP_GUARD}" ]]; then
   echo "[cleanup-k8s] CNPG Backup Guard를 찾을 수 없습니다: ${CNPG_BACKUP_GUARD}" >&2
   exit 1
@@ -515,8 +545,8 @@ echo "[cleanup-k8s] Kubernetes API 연결 확인 완료"
 echo "[2/10] Database/Redis/Kafka/Jenkins/Observability PVC/PV/EBS 추적"
 track_persistent_storage
 
-echo "[3/10] CNPG EBS Backup 사전 Guard"
-capture_cnpg_backup_evidence
+echo "[3/10] 이번 Destroy 실행의 CNPG EBS Backup Manifest 재검증"
+verify_cnpg_backup_evidence "pre-kubernetes-cleanup"
 
 echo "[4/10] Argo CD 동기화 중지"
 if "${KUBECTL[@]}" get statefulset argocd-application-controller --namespace argocd >/dev/null 2>&1; then

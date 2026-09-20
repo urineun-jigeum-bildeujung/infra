@@ -38,28 +38,37 @@ ServiceAccount annotation 없이도 Barman Cloud Plugin이 S3 Role을 사용할 
 보존기간을 갖는 Governance Vault Lock을 사용한다. `changeable_for_days`는 설정하지
 않으므로 Compliance Mode로 전환되지 않는다.
 
-전체 destroy 전에는 현행 CNPG PVC가 참조하는 각 EBS에 대해 온디맨드 Backup을
-완료해야 한다. Recovery Point에는 다음 태그가 필요하다.
+`tdestroy.sh`는 현재 CNPG PVC → PV → EBS를 식별한 뒤 각 EBS에 대해
+온디맨드 AWS Backup Job을 자동 생성한다. 사용자가 별도 백업 명령을 먼저 실행할
+필요는 없다. 기본 Poll 간격은 30초, 제한시간은 3600초이며 다음처럼 조정할 수 있다.
 
-- `Purpose=pre-cnpg-maintenance`
-- `Source=petflow-cnpg`
+```bash
+BACKUP_POLL_INTERVAL_SECONDS=15 BACKUP_TIMEOUT_SECONDS=3600 \
+  AWS_PROFILE=ujibil2 ./tdestroy.sh
+```
 
-`cleanup-k8s.sh`는 PVC → PV → EBS Volume ID를 추적한 뒤 다음 조건을 모두 확인한다.
+Recovery Point에는 `Project=petflow`, `Environment=dev`,
+`BackupType=pre-destroy`, `SourceVolumeId`, `DestroyRunId`,
+`CreatedBy=tdestroy.sh`, `ProtectedResource=cnpg` 태그를 기록한다.
+Vault Lock은 Governance Mode와 최소 보존기간 7일을 유지하며 조건이 다르면 삭제를
+시작하지 않는다.
 
-1. EBS에 `PetflowBackup=petflow-cnpg` 태그가 있다.
-2. Backup Job 상태가 `COMPLETED`다.
-3. Job의 Recovery Point가 `petflow-dev-cnpg-ebs` Vault에 실제 존재한다.
-4. Recovery Point 상태가 `COMPLETED`이고 원본 Volume ARN이 일치한다.
-5. 위 온디맨드 태그가 일치하고 삭제 예정 시각이 24시간보다 더 남았다.
-6. Vault Lock이 활성화되어 있고 최소 보존기간이 7일 이상이다.
+백업 Job은 모두 `COMPLETED`여야 하며 Job ID, 원본 EBS ARN, Recovery Point ARN,
+완료 시각, 실행 ID와 태그가 이번 Destroy 실행과 정확히 일치해야 한다. 일부만
+성공하거나 실패·시간 초과·알 수 없는 상태가 나오면 Kubernetes cleanup과 Terraform
+destroy를 모두 실행하지 않는다.
 
-검증 성공 시 `.destroy-evidence/<run-id>-cnpg-backups.json`을 생성한다. 같은 manifest를
-PVC/EBS 정리 직후, Terraform destroy 직전과 직후에 다시 검증하며 한 단계라도
-실패하면 후속 삭제를 중단한다. 이 파일은 로컬 운영 증거이므로 Git에 커밋하지 않는다.
+검증 성공 시 권한 `0600`의
+`.destroy-evidence/<run-id>-cnpg-backups.json` schema v2 Manifest를 생성한다.
+Manifest에는 PVC/PV/EBS 매핑과 Job/Recovery Point 정보만 저장하며 자격 증명은
+기록하지 않는다. `cleanup-k8s.sh`는 절대 경로 Manifest 없이는 단독 실행되지 않고,
+현재 CNPG EBS 전체가 Manifest에 포함됐는지 다시 확인한다. 동일
+`PETFLOW_DESTROY_RUN_ID`로 재실행하면 기존 Manifest와 Recovery Point를 AWS에서
+재검증한 뒤 cleanup/destroy를 재개한다.
 
-Recovery Point를 확인할 때 Job 이력만 신뢰하지 않는다. Job이 과거에
-`COMPLETED`였더라도 Recovery Point가 삭제될 수 있으므로 반드시
-`describe-recovery-point`와 `list-tags`가 모두 성공해야 한다.
+Recovery Point는 cleanup 전, PVC/EBS 정리 직후, Terraform destroy 직전과 직후에
+`describe-backup-job`, `describe-recovery-point`, `list-tags`로 반복 검증한다.
+Manifest 또는 AWS 상태가 하나라도 다르면 후속 삭제를 중단한다.
 
 
 ## GitOps 연결 계약
@@ -99,3 +108,18 @@ Terraform validate/test 는 AWS 적용 및 CNPG 호환성 검증을 대신하지
 GitOps 연결 후 실제 Barman 컨테이너에서 자격 증명 획득, base backup, WAL archive,
 새 Cluster 로 restore 및 데이터 검증을 수행한다. 다른 ServiceAccount 의 role assume 거부와
 허용 prefix 밖 객체 접근 거부도 확인한다. 사용한 CNPG/Plugin 이미지 버전과 결과를 기록한다.
+
+### Recovery Point 복원 점검
+
+Recovery Point 복원은 원본 PVC에 자동 연결하지 않고 새 EBS를 생성한다.
+
+1. Manifest의 정확한 Recovery Point ARN을 선택한다.
+2. `get-recovery-point-restore-metadata`로 필수 Metadata를 확인한다.
+3. `start-restore-job` 실행 후 `describe-restore-job`이 `COMPLETED`인지 확인한다.
+4. 새 EBS의 Region/AZ, 크기, 암호화, `available`, `Attachments=[]`를 확인한다.
+5. 복구용 PVC/PV에 명시적으로 연결한 뒤 PostgreSQL 일관성과 데이터를 검증한다.
+
+복원 테스트용 임시 EBS는 정확한 Volume ID, `available`, 빈 Attachment를 재확인한
+뒤에만 삭제한다. 검증 전에는 Recovery Point를 삭제하지 않는다. `tdestroy.sh`를
+재실행할 때 EKS가 이미 없다면 자동 백업/Kubernetes cleanup은 건너뛰고 남은
+Terraform 상태만 멱등하게 정리한다.

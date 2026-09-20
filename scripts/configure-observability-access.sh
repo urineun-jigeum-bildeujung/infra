@@ -211,7 +211,8 @@ wait_for_grafana_public_alb() {
 
     if [[ -n "${ingress_address}" && "${ingress_address}" == "${alb_dns}" \
       && "${ingress_group}" == "${EXPECTED_INGRESS_STACK}" \
-      && "${ingress_scheme}" == "internet-facing" && -z "${ingress_alb_name}" \
+      && "${ingress_scheme}" == "internet-facing" \
+      && "${ingress_alb_name}" == "${PUBLIC_ALB_NAME}" \
       && "${prometheus_ingresses}" == "0" \
       && ( -z "${legacy_alb_arn}" || "${legacy_alb_arn}" == "None" ) \
       && "${alb_state}" == "active" && "${alb_scheme}" == "internet-facing" \

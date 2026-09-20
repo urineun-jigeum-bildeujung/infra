@@ -41,7 +41,7 @@ ALB ARN, DNS와 Target Group ARN은 재생성될 수 있으므로 GitOps나 tfva
 - HTTP 동작: HTTPS 443 Redirect
 - Host: `grafana.leechs.shop`
 - Health Check: `/api/health`
-- 별도 `load-balancer-name` annotation 없음
+- 공유 ALB 이름: `petflow-dev-public`
 
 Web/Alloy와 같은 그룹을 사용해 `petflow-dev-public` ALB를 재사용한다. 별도
 Grafana ALB를 생성하지 않는다. NetworkPolicy는 Public ALB가 위치한 Public Subnet
@@ -93,7 +93,7 @@ Observability 단계는 다음 순서로 동작한다.
 
 1. `grafana-public` ADDRESS가 기존 Public ALB DNS와 같은지 확인
 2. IngressGroup, internet-facing Scheme, VPC와 Controller 태그 확인
-3. Grafana Ingress에 임의 `load-balancer-name`이 없는지 확인
+3. Grafana Ingress의 `load-balancer-name`이 `petflow-dev-public`인지 확인
 4. Prometheus Host를 가진 Ingress가 0개인지 확인
 5. HTTPS Host Rule, ACM SAN과 Grafana Target Health 확인
 6. 저장 DNS Plan Guard 통과 후 적용
@@ -147,7 +147,7 @@ curl.exe -I https://grafana.leechs.shop/login
 | 증상 | 확인 항목 |
 |---|---|
 | Grafana ADDRESS 없음 | Controller Pod/로그, Ingress Event, Public Subnet Tag |
-| 별도 ALB 생성 | `group.name=petflow-public`, 임의 `load-balancer-name` 유무 |
+| 별도 ALB 생성 | `group.name=petflow-public`, `load-balancer-name=petflow-dev-public` 일치 여부 |
 | HTTPS Listener 없음 | ACM 상태/SAN, Certificate Discovery, `listen-ports` |
 | 503 또는 Target unhealthy | Service/Endpoint, NetworkPolicy Public Subnet CIDR, `/api/health` |
 | 로그인 없이 조회됨 | `auth.anonymous.enabled`, Grafana ConfigMap/Pod 재배포 |

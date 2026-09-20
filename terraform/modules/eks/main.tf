@@ -18,10 +18,22 @@
 # =============================================================================
 # EKS Cluster
 # =============================================================================
+
+# EKS가 컨트롤 플레인 로그용으로 자동 생성하는 로그 그룹 이름을 미리 선점해 보존기간을
+# 지정한다. 미리 만들지 않으면 AWS가 무제한 보존(Never Expire)으로 로그 그룹을 만든다.
+resource "aws_cloudwatch_log_group" "cluster" {
+  name              = "/aws/eks/${var.project_name}-eks/cluster"
+  retention_in_days = var.cluster_log_retention_days
+}
+
 resource "aws_eks_cluster" "main" {
   name     = "${var.project_name}-eks"
   version  = var.cluster_version
   role_arn = var.cluster_role_arn
+
+  # 감사 목적 컨트롤 플레인 로그(기본 audit만) → CloudWatch Logs. 새 IAM Role은 필요 없다 —
+  # EKS 서비스가 자체 권한으로 로그를 전달하는 완전관리형 기능이다.
+  enabled_cluster_log_types = var.enabled_cluster_log_types
 
   vpc_config {
     # control plane 이 통신할 subnet. private + public 모두 포함해 endpoint 두 모드 지원.
@@ -47,6 +59,9 @@ resource "aws_eks_cluster" "main" {
   tags = {
     Name = "${var.project_name}-eks"
   }
+
+  # 로그 그룹에 보존기간을 먼저 지정해둔 뒤 컨트롤 플레인 로깅을 켠다.
+  depends_on = [aws_cloudwatch_log_group.cluster]
 }
 
 # =============================================================================

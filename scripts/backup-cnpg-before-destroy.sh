@@ -94,12 +94,31 @@ TEMP_KUBECONFIG="$(mktemp /tmp/petflow-cnpg-backup-kubeconfig.XXXXXX)"
 aws eks update-kubeconfig --name "${cluster_name}" --region "${aws_region}" --kubeconfig "${TEMP_KUBECONFIG}" >/dev/null
 KUBECTL=(kubectl --kubeconfig "${TEMP_KUBECONFIG}")
 "${KUBECTL[@]}" get --raw=/readyz --request-timeout=10s >/dev/null || fail "Kubernetes API에 접근할 수 없습니다."
-"${KUBECTL[@]}" --namespace "${CNPG_NAMESPACE}" get clusters.postgresql.cnpg.io "${CNPG_CLUSTER_NAME}" >/dev/null ||   fail "CNPG Cluster를 찾을 수 없습니다: ${CNPG_NAMESPACE}/${CNPG_CLUSTER_NAME}"
+if [[ "${RESUME_MANIFEST}" == "false" ]]; then
+  "${KUBECTL[@]}" --namespace "${CNPG_NAMESPACE}" get clusters.postgresql.cnpg.io "${CNPG_CLUSTER_NAME}" >/dev/null || fail "CNPG Cluster를 찾을 수 없습니다: ${CNPG_NAMESPACE}/${CNPG_CLUSTER_NAME}"
+fi
 
 log "[1/7] CNPG PVC/PV/EBS 조회"
-pvc_json="$("${KUBECTL[@]}" --namespace "${CNPG_NAMESPACE}" get pvc   --selector "cnpg.io/cluster=${CNPG_CLUSTER_NAME}" -o json)"
+pvc_json='{"items":[]}'
+if ! pvc_json="$("${KUBECTL[@]}" --namespace "${CNPG_NAMESPACE}" get pvc --selector "cnpg.io/cluster=${CNPG_CLUSTER_NAME}" -o json 2>/dev/null)"; then
+  if [[ "${RESUME_MANIFEST}" == "true" ]]; then
+    pvc_json='{"items":[]}'
+  else
+    fail "CNPG PVC를 조회할 수 없습니다: ${CNPG_NAMESPACE}/${CNPG_CLUSTER_NAME}"
+  fi
+fi
 pvc_count="$(jq '.items | length' <<<"${pvc_json}")"
-((pvc_count > 0)) || fail "CNPG 볼륨이 0개입니다. 자동 Destroy를 중단합니다."
+if ((pvc_count == 0)); then
+  if [[ "${RESUME_MANIFEST}" == "true" ]]; then
+    log "현재 CNPG PVC가 없어 기존 Manifest를 기준으로 cleanup 이후 재개 여부를 검증합니다."
+    bash "${BACKUP_GUARD}" verify \
+      --region "${aws_region}" --vault "${backup_vault}" --manifest "${MANIFEST}" \
+      --destroy-run-id "${DESTROY_RUN_ID}" --phase resume-after-kubernetes-cleanup
+    log "[7/7] 기존 백업 보호 조건 재검증 완료 — cleanup/destroy 재개"
+    exit 0
+  fi
+  fail "CNPG 볼륨이 0개입니다. 자동 Destroy를 중단합니다."
+fi
 
 resources='[]'
 declare -A seen_volumes=()

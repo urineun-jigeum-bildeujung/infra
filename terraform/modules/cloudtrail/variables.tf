@@ -32,7 +32,14 @@ variable "enable_log_file_validation" {
 }
 
 variable "allowed_admin_role_arns" {
-  description = "CloudTrail 로그 버킷의 삭제/정책변경(DeleteObject, PutBucketPolicy 등)이 허용되는 관리자 Role ARN 목록. 여기 없는 주체는 전부 차단된다."
+  description = "CloudTrail 로그 버킷의 삭제/정책변경(DeleteObject, PutBucketPolicy 등)이 허용되는 관리자 IAM User/Role ARN 목록. 여기 없는 주체는 전부 차단된다."
   type        = list(string)
-  default     = []
+
+  validation {
+    condition = length(var.allowed_admin_role_arns) > 0 && alltrue([
+      for arn in var.allowed_admin_role_arns :
+      can(regex("^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:(user|role)/[A-Za-z0-9+=,.@_/-]+$", arn))
+    ])
+    error_message = "allowed_admin_role_arns에는 비어 있지 않은 IAM User/Role ARN 목록을 지정해야 합니다."
+  }
 }

@@ -80,17 +80,16 @@ ECR Map key는 `auth-service`, `member-service`, `order-service`,
 `payment-service`, `product-service`, `notification-service`, `review-service`다.
 S3 Map key는 `static`, `product-images`, `uploads`, `db-backups`다.
 
-### Management DNS 별도 State
+### Observability DNS 별도 State
 
-`terraform/environments/dev-management-dns`는 GitOps가 만든 Internal ALB 이후에
-적용되므로 코어 DEV와 별도 State를 사용한다.
+`terraform/environments/dev-management-dns`는 기존 DNS State 주소를 보존하면서 Grafana를
+Public ALB에 연결하고 Prometheus 외부 Alias를 제거한다.
 
 | Output | 용도 |
 |---|---|
-| `grafana_url` | Tailscale 전용 Grafana HTTPS 주소 |
-| `prometheus_url` | Tailscale 전용 Prometheus HTTPS 주소 |
-| `management_alb_dns_name` | 현재 Internal ALB DNS 및 Alias 검증 |
-| `management_alb_zone_id` | Route53 Alias Canonical Hosted Zone ID |
+| `grafana_url` | Public HTTPS + 로그인 Grafana 주소 |
+| `public_alb_dns_name` | Grafana가 재사용하는 Public ALB DNS |
+| `public_alb_zone_id` | Public ALB Canonical Hosted Zone ID |
 | `route53_zone_id` | `leechs.shop` Public Hosted Zone 검증 |
 
 ALB DNS와 Zone ID는 재생성될 수 있으므로 다른 저장소나 tfvars에 복사하지 않는다.

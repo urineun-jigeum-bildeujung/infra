@@ -241,6 +241,19 @@ module "cloudtrail" {
   allowed_admin_role_arns       = var.cloudtrail_admin_role_arns
 }
 
+module "vpc_flow_log" {
+  source = "../../modules/vpc-flow-log"
+
+  project_name   = var.project_name
+  environment    = var.environment
+  aws_region     = var.aws_region
+  aws_account_id = data.aws_caller_identity.current.account_id
+  vpc_id         = module.network.vpc_id
+
+  s3_retention_days       = var.vpc_flow_log_s3_retention_days
+  allowed_admin_role_arns = var.cloudtrail_admin_role_arns
+}
+
 # Petflow CNPG EBS만 태그로 선택해 일일 Recovery Point를 생성한다.
 # 현재 PVC는 운영 절차에서 한 번 태그하고, 새 PVC는 GitOps gp3-cnpg StorageClass가
 # 같은 태그를 생성 시점에 자동으로 부여한다.

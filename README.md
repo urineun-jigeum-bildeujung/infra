@@ -252,22 +252,23 @@ State locking (`use_lockfile = true`) 덕분에 팀원 A 가 apply 중이면 B �
 | `tinit.sh` | 프로젝트 루트 | 필수 도구 / 인증 / `backend.hcl` 확인 후 `terraform init -backend-config=backend.hcl` |
 | `tplan.sh` | 프로젝트 루트 | AWS 인증 확인 → `terraform fmt` + `validate` + `plan` |
 | `tapply.sh` | 프로젝트 루트 | Terraform → GitOps → Public Web·Grafana ALB Target → Route53 → HTTPS 전체 생성·검증 |
-| `tdestroy.sh` | 프로젝트 루트 | Kubernetes/LB/TG/SG/ENI/Persistent Storage Cleanup → Backup Guard → DEV Terraform 삭제 |
+| `tdestroy.sh` | 프로젝트 루트 | 현재 CNPG EBS 온디맨드 백업/검증 → Kubernetes/LB/Persistent Storage Cleanup → DEV Terraform 삭제 |
 | `scripts/apply-infra.sh` | 내부 | Terraform Apply와 CNPG PostgreSQL 이미지 준비. 직접 실행하지 않음 |
+| `scripts/backup-cnpg-before-destroy.sh` | 내부 | CNPG PVC/PV/EBS 식별 → Backup Job 생성/대기 → schema v2 Manifest 생성 |
 | `scripts/configure-observability-access.sh` | 내부 | Grafana Public ALB/Host Rule/Target/DNS 및 Prometheus 비공개 Guard. 직접 실행하지 않음 |
 | `scripts/destroy-infra.sh` | 내부 | 보존 대상을 제외한 DEV Terraform 모듈 삭제. 직접 실행하지 않음 |
-| `cleanup-k8s.sh` | 내부 | CNPG Recovery Point/Vault Lock 확인 → Argo CD/LB/Persistent Storage 정리 |
+| `cleanup-k8s.sh` | 내부 | 이번 Destroy Manifest와 현재 CNPG EBS 재검증 → Argo CD/LB/Persistent Storage 정리 |
 | `trestore.sh` / `alldestroy.sh` | 호환 래퍼 | 각각 `tapply.sh` / `tdestroy.sh`로 전달하며 폐기 예정 경고 출력 |
-| `scripts/cnpg-backup-guard.sh` | 프로젝트 루트 | CNPG 온디맨드 Backup Job/Recovery Point/태그/보존기한을 검증하고 destroy 증거 manifest 생성·재검증 |
+| `scripts/cnpg-backup-guard.sh` | 내부 | Manifest의 Job/Recovery Point/실행 태그/Vault Lock을 AWS에서 반복 재검증 |
 | `scripts/tag-cnpg-ebs.sh` | 프로젝트 루트 | 기존 `petflow-db` PVC의 EBS만 검증 후 CNPG Backup 태그 부여 (`--apply`) |
 
-`tdestroy.sh`는 별도 확인 입력 없이 즉시 실행되지만, CNPG EBS마다
-`Purpose=pre-cnpg-maintenance`, `Source=petflow-cnpg` 태그가 있는 `COMPLETED`
-온디맨드 Recovery Point가 없거나 Vault Lock/보존기한 검증이 실패하면 Kubernetes
-리소스를 삭제하기 전에 중단한다. 통합 삭제는 Terraform/AWS CLI/`jq`가 준비된
-Tailscale ON 환경에서 실행한다. 역할을 나눠 실행할 때는 Windows/WSL의
-`cleanup-k8s.sh`가 출력한 `.destroy-evidence/*-cnpg-backups.json`을 VMware로 안전하게
-전달하고, 해당 경로를 `PETFLOW_CNPG_BACKUP_MANIFEST`로 지정해야 한다.
+`tdestroy.sh`는 별도 확인 입력 없이 현재 CNPG EBS마다 온디맨드 Backup Job을 만들고,
+모든 Job과 Recovery Point가 이번 실행 ID로 검증된 경우에만 삭제를 시작한다. 기본
+대기 간격은 30초, 제한시간은 3600초이며 `BACKUP_POLL_INTERVAL_SECONDS`와
+`BACKUP_TIMEOUT_SECONDS`로 조정한다. 실패·부분 성공·시간 초과 시 Kubernetes와
+Terraform 삭제를 모두 시작하지 않는다. Manifest는 `.destroy-evidence/`에 `0600`으로
+저장되고 Git에서 제외된다. 통합 삭제는 Terraform/AWS CLI/`jq`가 준비된 Tailscale ON
+환경에서 실행한다. 자세한 재실행 및 장애 대응은 [CNPG 백업 문서](docs/cnpg-backup.md)를 참고한다.
 
 모두 `terraform/environments/dev` 를 대상으로 한다. Bootstrap 스택(`state-backend`, `terraform-access`)은 이 스크립트로 조작되지 않는다.
 Bootstrap 스택은 담당자가 해당 디렉터리로 직접 이동해서 `terraform` 명령을 실행한다 ([docs/architecture.md](docs/architecture.md) §5 참고).

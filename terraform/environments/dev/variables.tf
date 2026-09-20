@@ -117,6 +117,18 @@ variable "eks_cluster_admin_principal_arns" {
   default     = []
 }
 
+variable "eks_cluster_log_types" {
+  description = "CloudWatch Logs로 보낼 EKS 컨트롤 플레인 로그 타입. 감사 목적상 기본은 audit만."
+  type        = list(string)
+  default     = ["audit"]
+}
+
+variable "eks_cluster_log_retention_days" {
+  description = "EKS 컨트롤 플레인 로그의 CloudWatch Logs 보존 일수"
+  type        = number
+  default     = 30
+}
+
 variable "eks_node_instance_types" {
   description = "Managed Node Group EC2 인스턴스 타입 후보"
   type        = list(string)

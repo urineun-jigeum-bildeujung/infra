@@ -82,6 +82,10 @@ module "eks" {
   private_subnet_ids = module.network.private_subnet_ids
   public_subnet_ids  = module.network.public_subnet_ids
 
+  # 감사 로그
+  enabled_cluster_log_types  = var.eks_cluster_log_types
+  cluster_log_retention_days = var.eks_cluster_log_retention_days
+
   # Endpoint
   endpoint_public_access  = var.eks_endpoint_public_access
   endpoint_private_access = var.eks_endpoint_private_access

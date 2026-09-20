@@ -26,6 +26,18 @@ variable "node_role_arn" {
   type        = string
 }
 
+variable "enabled_cluster_log_types" {
+  description = "CloudWatch Logs로 보낼 EKS 컨트롤 플레인 로그 타입. 감사 목적상 기본은 audit(K8s API 서버 감사 이벤트)만 켠다."
+  type        = list(string)
+  default     = ["audit"]
+}
+
+variable "cluster_log_retention_days" {
+  description = "EKS 컨트롤 플레인 로그의 CloudWatch Logs 보존 일수. 지정하지 않으면 AWS가 무제한 보존으로 로그 그룹을 만든다."
+  type        = number
+  default     = 30
+}
+
 variable "vpc_id" {
   description = "EKS 가 배포될 VPC ID"
   type        = string

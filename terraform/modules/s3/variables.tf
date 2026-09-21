@@ -41,13 +41,18 @@ variable "bucket_settings" {
 }
 
 variable "enable_image_uploads" {
-  description = "uploads 버킷의 이미지 직접 업로드 및 CloudFront 조회 구성 활성화"
+  description = "uploads 버킷의 이미지 직접 업로드 및 uploads/product-images 버킷의 CloudFront 조회 구성 활성화"
   type        = bool
   default     = false
 
   validation {
     condition     = !var.enable_image_uploads || contains(var.bucket_purposes, "uploads")
     error_message = "이미지 업로드를 활성화하려면 bucket_purposes에 uploads가 있어야 합니다."
+  }
+
+  validation {
+    condition     = !var.enable_image_uploads || contains(var.bucket_purposes, "product-images")
+    error_message = "이미지 조회를 활성화하려면 bucket_purposes에 product-images가 있어야 합니다."
   }
 
   # 현재 버전 만료만으로 객체를 영구 삭제할 수 있는 비버전 버킷만 지원한다.

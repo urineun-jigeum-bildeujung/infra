@@ -251,10 +251,12 @@ State locking (`use_lockfile = true`) 덕분에 팀원 A 가 apply 중이면 B �
 |---|---|---|
 | `tinit.sh` | 프로젝트 루트 | 필수 도구 / 인증 / `backend.hcl` 확인 후 `terraform init -backend-config=backend.hcl` |
 | `tplan.sh` | 프로젝트 루트 | AWS 인증 확인 → `terraform fmt` + `validate` + `plan` |
-| `tapply.sh` | 프로젝트 루트 | Terraform → GitOps → Public Web·Grafana ALB Target → Route53 → HTTPS 전체 생성·검증 |
-| `tdestroy.sh` | 프로젝트 루트 | 현재 CNPG EBS 온디맨드 백업/검증 → Kubernetes/LB/Persistent Storage Cleanup → DEV Terraform 삭제 |
+| `tapply.sh` | 프로젝트 루트 | Terraform → CNPG 복원 또는 initdb·새 WAL 경로 검증 → GitOps → Public Web·Grafana ALB Target → Route53 → HTTPS |
+| `tdestroy.sh` | 프로젝트 루트 | CNPG S3 base/WAL 백업 → EBS 온디맨드 백업/검증 → Kubernetes/LB/Persistent Storage Cleanup → DEV Terraform 삭제 |
 | `scripts/apply-infra.sh` | 내부 | Terraform Apply와 CNPG PostgreSQL 이미지 준비. 직접 실행하지 않음 |
 | `scripts/backup-cnpg-before-destroy.sh` | 내부 | CNPG PVC/PV/EBS 식별 → Backup Job 생성/대기 → schema v2 Manifest 생성 |
+| `scripts/cnpg-s3-backup.sh` | 내부 | CNPG base backup 생성 → 새 WAL S3 업로드 확인 → 복원 지점 marker 저장 |
+| `scripts/restore-cnpg-before-gitops.sh` | 내부 | S3 marker 검증 → CNPG 복원 또는 initdb → 새 세대 WAL 경로와 base backup 검증 |
 | `scripts/configure-observability-access.sh` | 내부 | Grafana Public ALB/Host Rule/Target/DNS 및 Prometheus 비공개 Guard. 직접 실행하지 않음 |
 | `scripts/destroy-infra.sh` | 내부 | 보존 대상을 제외한 DEV Terraform 모듈 삭제. 직접 실행하지 않음 |
 | `cleanup-k8s.sh` | 내부 | 이번 Destroy Manifest와 현재 CNPG EBS 재검증 → Argo CD/LB/Persistent Storage 정리 |
@@ -262,7 +264,8 @@ State locking (`use_lockfile = true`) 덕분에 팀원 A 가 apply 중이면 B �
 | `scripts/cnpg-backup-guard.sh` | 내부 | Manifest의 Job/Recovery Point/실행 태그/Vault Lock을 AWS에서 반복 재검증 |
 | `scripts/tag-cnpg-ebs.sh` | 프로젝트 루트 | 기존 `petflow-db` PVC의 EBS만 검증 후 CNPG Backup 태그 부여 (`--apply`) |
 
-`tdestroy.sh`는 별도 확인 입력 없이 현재 CNPG EBS마다 온디맨드 Backup Job을 만들고,
+`tdestroy.sh`는 먼저 CNPG base backup과 새 WAL이 S3에 존재하는지 확인하고
+`cnpg/recovery/latest.json`에 복원 지점을 기록한다. 이어 현재 CNPG EBS마다 온디맨드 Backup Job을 만들고,
 모든 Job과 Recovery Point가 이번 실행 ID로 검증된 경우에만 삭제를 시작한다. 기본
 대기 간격은 30초, 제한시간은 3600초이며 `BACKUP_POLL_INTERVAL_SECONDS`와
 `BACKUP_TIMEOUT_SECONDS`로 조정한다. 실패·부분 성공·시간 초과 시 Kubernetes와

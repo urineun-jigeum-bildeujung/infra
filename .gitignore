@@ -37,6 +37,10 @@ kubeconfig
 .vscode/
 .idea/
 
+# Python 검증 실행 산출물
+__pycache__/
+*.pyc
+
 # Claude Code (팀 공유 안 함, 개인 로컬 설정)
 .claude/
 

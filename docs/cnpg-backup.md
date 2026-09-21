@@ -1,7 +1,30 @@
 # CNPG S3 백업 기반
 
-Terraform 관리 범위는 db-backups 버킷, PostgreSQL Pod 의 IAM Role과 EKS Pod Identity Association이다.
-CNPG Operator, Barman Cloud Plugin, Cluster, ObjectStore, ScheduledBackup 은 GitOps 에서 관리한다.
+Terraform 관리 범위는 db-backups 버킷, PostgreSQL Pod의 IAM Role과 EKS Pod Identity Association이다.
+CNPG Operator, Barman Cloud Plugin, ScheduledBackup과 서비스별 Database는 GitOps에서 관리한다.
+Cluster와 ObjectStore는 `tapply.sh`가 복원 지점에 따라 생성한다.
+
+## EKS 전체 재생성
+
+`tdestroy.sh`는 Kubernetes/EBS를 삭제하기 전에 CNPG on-demand base backup을 완료하고,
+백업 시작 이후 생성된 WAL이 S3에 올라왔는지 확인한다. 성공한 복원 지점은
+`s3://petflow-dev-db-backups/cnpg/recovery/latest.json`에 기록한다. 이후 기존 EBS
+Recovery Point도 별도로 만든다. 어느 백업 단계든 실패하면 삭제를 중단한다.
+
+`tapply.sh`는 GitOps 서비스 Application보다 먼저 CNPG를 준비한다. marker가 가리키는
+base/WAL이 있으면 그 경로에서 `petflow-db`를 복원한다. marker도 복원 가능한
+백업도 없으면 `initdb`를 수행한다. marker는 있으나 파일이 누락되거나 복원에
+실패하면 빈 DB로 전환하지 않고 중단한다.
+
+매번 `cnpg/generations/<UTC 시각>-<UUID>/`에 새 ObjectStore를 만들어 WAL과 다음
+base backup을 보관한다. 이전 세대 ObjectStore는 복원 입력으로만 사용한다. 복원
+또는 initdb 후 새 세대의 base/WAL 업로드를 검증하고 marker를 갱신한 다음에만
+GitOps를 시작한다. S3 Versioning이 켜져 있으므로 marker 이전 버전도 남는다.
+이전 세대의 백업은 자동 삭제하지 않으며 보관 비용을 확인해 정리해야 한다.
+
+이 변경은 infra와 gitops 저장소가 함께 배포되어야 한다. 이전 GitOps main이
+Cluster/ObjectStore를 계속 관리하면 실행 시 생성한 경로를 덮어쓸 수 있으므로,
+변경된 GitOps main이 원격에 반영됐는지 `tapply.sh`가 먼저 확인한다.
 
 Private subnet의 S3 트래픽은 Terraform network 모듈이 생성하는 S3 Gateway VPC Endpoint를
 통해 전송한다. 이 Endpoint는 모든 private route table에 연결된다.
@@ -81,7 +104,7 @@ CNPG 는 일반적으로 Cluster 이름과 같은 ServiceAccount 를 생성한�
 
 - cnpg_backup_role_arn: Pod Identity Association에 연결된 IAM Role 확인용
 - cnpg_backup_pod_identity_association_id: 생성된 Pod Identity Association 확인용
-- cnpg_backup_destination_path: ObjectStore.spec.configuration.destinationPath
+- cnpg_backup_destination_path: IAM 범위의 기본 prefix (`cnpg`). 실제 ObjectStore는 세대별 하위 경로를 사용
 - cnpg_backup_service_account: PostgreSQL Pod 의 namespace 와 ServiceAccount 확인
 
 Barman ObjectStore에는 AWS SDK 기본 자격 증명 체인을 사용하도록 다음 설정을 명시해야 한다.

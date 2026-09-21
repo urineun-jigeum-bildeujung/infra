@@ -562,7 +562,10 @@ wait_for_eks_readyz
 log "[3/10] Worker Node Ready 대기"
 wait_for_worker_nodes "${cluster_name}" "${node_group_name}" "${aws_region}"
 
-log "[4/10] GitOps Bootstrap"
+log "[4/11] CNPG 백업 복원 또는 최초 initdb, 새 WAL 경로 및 base backup 검증"
+GITOPS_DIR="${GITOPS_DIR}" "${SCRIPT_DIR}/scripts/restore-cnpg-before-gitops.sh"
+
+log "[5/11] GitOps Bootstrap"
 if ! (
   cd "${GITOPS_DIR}"
   task bootstrap:core
@@ -571,21 +574,21 @@ if ! (
   fail "GitOps bootstrap:core 실행에 실패했습니다."
 fi
 
-log "[5/10] AWS Load Balancer Controller GitOps Sync와 Ready 대기"
+log "[6/11] AWS Load Balancer Controller GitOps Sync와 Ready 대기"
 wait_for_alb_controller
 
-log "[6/10] Web Ingress와 Public ALB active 대기"
+log "[7/11] Web Ingress와 Public ALB active 대기"
 wait_for_web_alb "${aws_region}"
 
-log "[7/10] Public Web ALB Target Health 검증"
+log "[8/11] Public Web ALB Target Health 검증"
 verify_target_health "${aws_region}"
 
-log "[8/10] Grafana Public ALB Target·Route53·HTTPS 및 Prometheus 비공개 Guard"
+log "[9/11] Grafana Public ALB Target·Route53·HTTPS 및 Prometheus 비공개 Guard"
 APPLY_OBSERVABILITY_DNS="${APPLY_OBSERVABILITY_DNS}" \
   PETFLOW_INTERNAL_ORCHESTRATOR=true \
   "${SCRIPT_DIR}/scripts/configure-observability-access.sh"
 
-log "[9/10] Web Route53 Alias와 공개 HTTPS"
+log "[10/11] Web Route53 Alias와 공개 HTTPS"
 if [[ "${APPLY_WEB_DNS}" == true ]]; then
   apply_web_dns "${aws_region}"
   verify_public_web
@@ -594,7 +597,7 @@ else
   log "ALB/Target Guard는 통과했습니다. DNS까지 복구하려면 APPLY_WEB_DNS=true로 실행하세요."
 fi
 
-log "[10/10] 최종 상태 요약"
+log "[11/11] 최종 상태 요약"
 print_final_summary "${cluster_name}" "${aws_region}"
 
 log "DEV 전체 Apply 완료"

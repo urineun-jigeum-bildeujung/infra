@@ -87,7 +87,10 @@ uploads 버킷은 Versioning 비활성 구성을 사용한다. 과거에 Version
 버킷 삭제 방지와 별개로 pending Lifecycle은 EKS를 삭제한 동안에도 동작한다.
 
 CloudFront 조회는 공개 이미지용이다. OAC는 S3 origin을 보호하지만 사용자별 조회 권한을 제공하지 않는다.
-리뷰/프로필 경로 외 객체 조회 권한은 CloudFront에 부여하지 않는다.
+CloudFront는 `reviews/*`, `profiles/*`를 uploads 버킷에서, `products/*`를
+product-images 버킷에서 조회한다. 각 버킷 정책은 해당 경로만 조회하도록 허용한다.
+상품 이미지는 `petflow-dev-product-images` 버킷의 `products/{productId}/{uuid}.{ext}`에
+수동 업로드하고, DB에는 `https://image.leechs.shop/products/{productId}/{uuid}.{ext}`를 저장한다.
 객체 삭제 후 이미 캐시된 이미지는 TTL 동안 조회될 수 있다.
 
 ## 배포 후 확인

@@ -137,6 +137,28 @@ data "aws_iam_policy_document" "tls_only" {
       }
     }
   }
+
+  dynamic "statement" {
+    for_each = each.key == "product-images" && var.enable_image_uploads ? [1] : []
+
+    content {
+      sid       = "AllowProductImagesCloudFrontRead"
+      effect    = "Allow"
+      actions   = ["s3:GetObject"]
+      resources = ["${each.value.arn}/products/*"]
+
+      principals {
+        type        = "Service"
+        identifiers = ["cloudfront.amazonaws.com"]
+      }
+
+      condition {
+        test     = "StringEquals"
+        variable = "AWS:SourceArn"
+        values   = [aws_cloudfront_distribution.uploads[0].arn]
+      }
+    }
+  }
 }
 
 resource "aws_s3_bucket_policy" "tls_only" {

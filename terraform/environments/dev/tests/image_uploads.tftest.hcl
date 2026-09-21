@@ -66,11 +66,24 @@ run "pending_expiration_and_private_cdn" {
       alltrue([
         for behavior in aws_cloudfront_distribution.uploads[0].default_cache_behavior :
         toset(behavior.allowed_methods) == toset(["GET", "HEAD"]) &&
+        behavior.viewer_protocol_policy == "redirect-to-https" &&
+        behavior.target_origin_id == "uploads-s3"
+      ]) &&
+      length(aws_cloudfront_distribution.uploads[0].ordered_cache_behavior) == 1 &&
+      alltrue([
+        for behavior in aws_cloudfront_distribution.uploads[0].ordered_cache_behavior :
+        behavior.path_pattern == "products/*" &&
+        behavior.target_origin_id == "product-images-s3" &&
+        toset(behavior.allowed_methods) == toset(["GET", "HEAD"]) &&
         behavior.viewer_protocol_policy == "redirect-to-https"
       ]) &&
+      length(aws_cloudfront_distribution.uploads[0].origin) == 2 &&
       alltrue([
         for origin in aws_cloudfront_distribution.uploads[0].origin :
-        origin.domain_name == aws_s3_bucket.app["uploads"].bucket_regional_domain_name &&
+        (
+          (origin.origin_id == "uploads-s3" && origin.domain_name == aws_s3_bucket.app["uploads"].bucket_regional_domain_name) ||
+          (origin.origin_id == "product-images-s3" && origin.domain_name == aws_s3_bucket.app["product-images"].bucket_regional_domain_name)
+        ) &&
         origin.origin_access_control_id == aws_cloudfront_origin_access_control.uploads[0].id &&
         length(origin.s3_origin_config) == 0
       ])
@@ -116,8 +129,30 @@ run "pending_expiration_and_private_cdn" {
 
   assert {
     condition = alltrue([
+      for statement in data.aws_iam_policy_document.tls_only["product-images"].statement :
+      statement.sid != "AllowProductImagesCloudFrontRead" || (
+        toset(statement.actions) == toset(["s3:GetObject"]) &&
+        toset(statement.resources) == toset(["${aws_s3_bucket.app["product-images"].arn}/products/*"]) &&
+        alltrue([
+          for principal in statement.principals :
+          principal.type == "Service" && toset(principal.identifiers) == toset(["cloudfront.amazonaws.com"])
+        ]) &&
+        alltrue([
+          for condition in statement.condition :
+          condition.test == "StringEquals" && condition.variable == "AWS:SourceArn" &&
+          toset(condition.values) == toset([aws_cloudfront_distribution.uploads[0].arn])
+        ])
+      )
+      ]) && toset([
+      for statement in data.aws_iam_policy_document.tls_only["product-images"].statement : statement.sid
+    ]) == toset(["DenyInsecureTransport", "AllowProductImagesCloudFrontRead"])
+    error_message = "상품 이미지 버킷은 해당 CloudFront 배포에 products/* 읽기만 허용해야 합니다."
+  }
+
+  assert {
+    condition = alltrue([
       for name, document in data.aws_iam_policy_document.tls_only :
-      name == "uploads" || length(document.statement) == 1
+      contains(["uploads", "product-images"], name) || length(document.statement) == 1
     ])
     error_message = "이미지 조회 권한을 다른 버킷에 부여하면 안 됩니다."
   }

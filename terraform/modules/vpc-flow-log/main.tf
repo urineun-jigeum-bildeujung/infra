@@ -136,6 +136,64 @@ data "aws_iam_policy_document" "bucket_policy" {
     }
   }
 
+  # CreateFlowLogs API가 S3 대상 구성 시 Bucket Policy에 자동 추가하는 서비스 관리 문장.
+  # 코드에서 함께 관리하여 다음 plan에서 해당 문장이 삭제되는 드리프트를 방지한다.
+  statement {
+    sid    = "AWSLogDeliveryWrite1"
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["delivery.logs.amazonaws.com"]
+    }
+
+    actions   = ["s3:PutObject"]
+    resources = ["${aws_s3_bucket.this.arn}/AWSLogs/${var.aws_account_id}/*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [var.aws_account_id]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "s3:x-amz-acl"
+      values   = ["bucket-owner-full-control"]
+    }
+
+    condition {
+      test     = "ArnLike"
+      variable = "aws:SourceArn"
+      values   = ["arn:aws:logs:${var.aws_region}:${var.aws_account_id}:*"]
+    }
+  }
+
+  statement {
+    sid    = "AWSLogDeliveryAclCheck1"
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["delivery.logs.amazonaws.com"]
+    }
+
+    actions   = ["s3:GetBucketAcl"]
+    resources = [aws_s3_bucket.this.arn]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [var.aws_account_id]
+    }
+
+    condition {
+      test     = "ArnLike"
+      variable = "aws:SourceArn"
+      values   = ["arn:aws:logs:${var.aws_region}:${var.aws_account_id}:*"]
+    }
+  }
+
   # 관리자 IAM User/Role(var.allowed_admin_role_arns) 외에는 로그 삭제/버킷 정책·라이프사이클 변경을 차단한다.
   # CloudTrail 모듈은 NotPrincipal 단독 문법을 쓰지만, 이 버킷은 VPC Flow Log 목적지라
   # EC2가 생성 시점에 버킷 정책을 자체 검증하는데 그 로직이 NotPrincipal-only statement를

@@ -1,43 +1,27 @@
 #!/usr/bin/env bash
-# Dev 환경 Terraform 초기화 (프로젝트 루트에서 실행)
-#
-# 사용:
-#   ./tinit.sh
-#
-# 전제:
-#   - terraform/environments/dev/backend.hcl 존재
-#   - terraform/environments/dev/terraform.tfvars 존재
-#   - AWS 자격 증명 설정 완료 (aws configure 또는 환경변수)
-#
-# 이 스크립트는 terraform/environments/dev 로 이동해서
-# terraform init -backend-config=backend.hcl 을 실행한다.
+# Dev 환경 Terraform Backend 초기화 (프로젝트 루트에서 실행)
+# 사용: AWS_PROFILE=petflow-terraform-<사용자> ./tinit.sh
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TERRAFORM_DIR="${SCRIPT_DIR}/terraform/environments/dev"
 
-cd "${TERRAFORM_DIR}"
+for command_name in aws terraform; do
+  command -v "${command_name}" >/dev/null 2>&1 || {
+    echo "[tinit] ${command_name} 명령이 필요합니다." >&2
+    exit 1
+  }
+done
 
-if ! command -v terraform >/dev/null 2>&1; then
-  echo "[tinit] Terraform이 설치되어 있지 않습니다."
+# shellcheck source=scripts/lib/terraform-auth.sh
+source "${SCRIPT_DIR}/scripts/lib/terraform-auth.sh"
+petflow_validate_terraform_identity "tinit"
+
+if [[ ! -f "${TERRAFORM_DIR}/backend.hcl" ]]; then
+  echo "[tinit] backend.hcl 파일이 없습니다." >&2
+  echo "        cp backend.hcl.example backend.hcl 로 복사한 뒤 실제 값을 입력해주세요." >&2
   exit 1
 fi
 
-if ! command -v aws >/dev/null 2>&1; then
-  echo "[tinit] AWS CLI가 설치되어 있지 않습니다."
-  exit 1
-fi
-
-if ! aws sts get-caller-identity >/dev/null 2>&1; then
-  echo "[tinit] AWS 인증 정보를 확인해주세요."
-  exit 1
-fi
-
-if [ ! -f "backend.hcl" ]; then
-  echo "[tinit] backend.hcl 파일이 없습니다."
-  echo "        cp backend.hcl.example backend.hcl 로 복사한 뒤 실제 값을 입력해주세요."
-  exit 1
-fi
-
-terraform init -backend-config=backend.hcl
+terraform -chdir="${TERRAFORM_DIR}" init -backend-config=backend.hcl

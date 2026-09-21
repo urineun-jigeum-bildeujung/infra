@@ -6,7 +6,7 @@
 #   - State Backend (S3 Bucket + .tflock) 접근 Policy
 #   - 영구 Route53 Hosted Zone 삭제 차단 Policy
 #   - 프로젝트 인프라 관리 권한 (초기 단계: AdministratorAccess, 추후 축소 TODO)
-#   - (선택) Terraform 을 실행하는 개발자용 IAM Role  ← 이번 스켈레톤에는 미포함
+#   - 승인된 팀원이 Assume하는 공용 Terraform 실행 Role
 #
 # ⚠️ 이 스택의 리소스는 DEV 인프라의 terraform destroy 대상이 아니다.
 #    최초 1회 생성 후 계속 유지하며, 함부로 삭제하지 않는다.
@@ -64,6 +64,10 @@ locals {
     "dev/terraform.tfstate",
   ]
 }
+
+data "aws_caller_identity" "current" {}
+
+data "aws_partition" "current" {}
 
 # =============================================================================
 # GitHub Actions OIDC Provider
@@ -189,6 +193,66 @@ resource "aws_iam_role_policy_attachment" "github_actions_admin" {
 }
 
 # =============================================================================
+# 팀 공용 Terraform 실행 Role
+# =============================================================================
+# 개인 IAM 사용자에게 인프라 권한을 복제하지 않는다. 승인된 사용자에게는 이 Role을
+# Assume할 최소 권한만 주고, 실제 Terraform 권한은 Role에 일관되게 연결한다.
+data "aws_iam_policy_document" "terraform_execution_trust" {
+  statement {
+    sid     = "AllowApprovedTeamMembersToAssumeRole"
+    effect  = "Allow"
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type = "AWS"
+      identifiers = [
+        for user_name in var.terraform_execution_user_names :
+        "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:user/${user_name}"
+      ]
+    }
+  }
+}
+
+resource "aws_iam_role" "terraform_execution" {
+  name                 = var.terraform_execution_role_name
+  description          = "Shared role assumed by approved team members to manage PetFlow infrastructure with Terraform"
+  assume_role_policy   = data.aws_iam_policy_document.terraform_execution_trust.json
+  max_session_duration = var.terraform_execution_max_session_duration
+}
+
+resource "aws_iam_role_policy_attachment" "terraform_execution_admin" {
+  role       = aws_iam_role.terraform_execution.name
+  policy_arn = "arn:${data.aws_partition.current.partition}:iam::aws:policy/AdministratorAccess"
+}
+
+resource "aws_iam_role_policy_attachment" "terraform_execution_state_access" {
+  role       = aws_iam_role.terraform_execution.name
+  policy_arn = aws_iam_policy.terraform_state_access.arn
+}
+
+data "aws_iam_policy_document" "terraform_execution_assume" {
+  statement {
+    sid       = "AssumePetflowTerraformExecutionRole"
+    effect    = "Allow"
+    actions   = ["sts:AssumeRole"]
+    resources = [aws_iam_role.terraform_execution.arn]
+  }
+}
+
+resource "aws_iam_policy" "terraform_execution_assume" {
+  name        = "${var.project_name}-terraform-execution-assume"
+  description = "Allows approved PetFlow team members to assume the shared Terraform execution role"
+  policy      = data.aws_iam_policy_document.terraform_execution_assume.json
+}
+
+resource "aws_iam_user_policy_attachment" "terraform_execution_assume" {
+  for_each = var.terraform_execution_user_names
+
+  user       = each.value
+  policy_arn = aws_iam_policy.terraform_execution_assume.arn
+}
+
+# =============================================================================
 # Route53 Hosted Zone 삭제 차단
 # =============================================================================
 # DEV 스택과 별도인 이 Bootstrap 스택에서 명시적 Deny를 관리한다.
@@ -214,6 +278,11 @@ resource "aws_iam_policy" "route53_delete_protection" {
 # GitHub Actions Terraform 자동화에도 같은 삭제 차단을 적용한다.
 resource "aws_iam_role_policy_attachment" "github_actions_route53_delete_protection" {
   role       = aws_iam_role.github_actions_terraform.name
+  policy_arn = aws_iam_policy.route53_delete_protection.arn
+}
+
+resource "aws_iam_role_policy_attachment" "terraform_execution_route53_delete_protection" {
+  role       = aws_iam_role.terraform_execution.name
   policy_arn = aws_iam_policy.route53_delete_protection.arn
 }
 

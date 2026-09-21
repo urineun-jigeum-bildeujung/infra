@@ -18,3 +18,17 @@ route53_protection_user_names = [
   "ujibil4",
   "ujibil5",
 ]
+
+
+# 팀원은 자신의 IAM 사용자로 로그인한 뒤 이 공용 Role을 Assume한다.
+terraform_execution_role_name = "petflow-terraform-execution"
+terraform_execution_user_names = [
+  "ujibil1",
+  "ujibil2",
+  "ujibil3",
+  "ujibil4",
+  "ujibil5",
+]
+
+# 4시간. 필요 시 3600~43200초 범위에서 조정한다.
+terraform_execution_max_session_duration = 14400

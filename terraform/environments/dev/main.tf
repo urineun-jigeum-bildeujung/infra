@@ -4,6 +4,22 @@
 # 실제 리소스는 각 모듈 내부에서 정의하며, 여기서는 모듈 호출과 값 전달만 담당한다.
 
 locals {
+  # 개인 IAM 사용자가 아닌 Bootstrap 공용 Role을 Terraform 실행 주체로 고정한다.
+  terraform_execution_role_arn = "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:role/${var.terraform_execution_role_name}"
+
+  # 공용 Role이 EKS 생성 후 kubectl/GitOps 자동화까지 이어서 수행할 수 있어야 한다.
+  eks_cluster_admin_principal_arns = distinct(concat(
+    var.eks_cluster_admin_principal_arns,
+    [local.terraform_execution_role_arn],
+  ))
+
+  # 감사 로그 Bucket 변조 방지 예외는 공용 실행 Role을 필수로 포함한다.
+  # cloudtrail_admin_role_arns는 비상 전환용 추가 ARN만 받는 하위 호환 입력이다.
+  audit_log_admin_principal_arns = distinct(concat(
+    [local.terraform_execution_role_arn],
+    var.cloudtrail_admin_role_arns,
+  ))
+
   # 기존 tfvars에서도 사용자 이미지 업로드와 CNPG 백업 Bucket을 보장한다.
   dev_s3_bucket_purposes = distinct(concat(var.s3_bucket_purposes, ["uploads", "db-backups"]))
 
@@ -19,6 +35,8 @@ locals {
 }
 
 data "aws_caller_identity" "current" {}
+
+data "aws_partition" "current" {}
 
 # DEV 리전에서 이후 생성되는 모든 EBS(PVC 및 Worker Root Volume)를 기본 암호화한다.
 # 기존 Volume은 제자리 암호화되지 않으며 다음 재생성부터 AWS 관리형 aws/ebs Key가 적용된다.
@@ -92,7 +110,7 @@ module "eks" {
   public_access_cidrs     = var.eks_public_access_cidrs
 
   # Access
-  cluster_admin_principal_arns = var.eks_cluster_admin_principal_arns
+  cluster_admin_principal_arns = local.eks_cluster_admin_principal_arns
 
   # Node Group
   node_instance_types = var.eks_node_instance_types
@@ -230,9 +248,7 @@ module "workload_iam" {
 }
 
 # AWS 계정/리전 전체의 관리 API 호출(CloudTrail) 감사 로그.
-# 주의: cloudtrail_admin_role_arns가 비어있으면 로그 버킷 삭제/정책변경 Deny가
-# 모든 주체(terraform 실행 계정 포함)에 적용될 수 있으므로, apply 전 실제 관리자
-# Role ARN을 tfvars에 채워야 한다.
+# 공용 Terraform 실행 Role은 항상 삭제/정책변경 Deny의 예외로 포함한다.
 module "cloudtrail" {
   source = "../../modules/cloudtrail"
 
@@ -242,7 +258,7 @@ module "cloudtrail" {
 
   s3_retention_days             = var.cloudtrail_s3_retention_days
   cloudwatch_log_retention_days = var.cloudtrail_cloudwatch_retention_days
-  allowed_admin_role_arns       = var.cloudtrail_admin_role_arns
+  allowed_admin_role_arns       = local.audit_log_admin_principal_arns
 }
 
 module "vpc_flow_log" {
@@ -255,7 +271,7 @@ module "vpc_flow_log" {
   vpc_id         = module.network.vpc_id
 
   s3_retention_days       = var.vpc_flow_log_s3_retention_days
-  allowed_admin_role_arns = var.cloudtrail_admin_role_arns
+  allowed_admin_role_arns = local.audit_log_admin_principal_arns
 }
 
 # Petflow CNPG EBS만 태그로 선택해 일일 Recovery Point를 생성한다.

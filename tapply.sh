@@ -2,8 +2,8 @@
 # Terraform DEV 인프라부터 Public Web·Grafana 및 Private Prometheus까지 준비하는 전체 Apply 진입점이다.
 #
 # 사용:
-#   ./tplan.sh
-#   AWS_PROFILE=ujibil2 ./tapply.sh
+#   AWS_PROFILE=petflow-terraform-<사용자> ./tplan.sh
+#   AWS_PROFILE=petflow-terraform-<사용자> ./tapply.sh
 #
 # GitOps가 기본 위치(../gitops)가 아니면 GITOPS_DIR로 재정의한다.
 # DNS 적용을 의도적으로 제외할 때만 APPLY_WEB_DNS=false를 사용한다.
@@ -14,7 +14,6 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TERRAFORM_DIR="${SCRIPT_DIR}/terraform/environments/dev"
 WEB_DNS_DIR="${SCRIPT_DIR}/terraform/environments/dev-web-dns"
-EXPECTED_AWS_ACCOUNT_ID="297165773875"
 EXPECTED_AWS_REGION="ap-northeast-2"
 EXPECTED_GITOPS_REMOTE="urineun-jigeum-bildeujung/gitops"
 KUBECONFIG_CONTEXT="petflow-dev"
@@ -513,7 +512,9 @@ print_final_summary() {
 for command_name in aws terraform kubectl helm task git jq curl flock; do
   require_command "${command_name}"
 done
-[[ -n "${AWS_PROFILE:-}" ]] || fail "AWS_PROFILE을 명시해주세요. 예: AWS_PROFILE=ujibil2 ./tapply.sh"
+
+# shellcheck source=scripts/lib/terraform-auth.sh
+source "${SCRIPT_DIR}/scripts/lib/terraform-auth.sh"
 
 case "${APPLY_WEB_DNS}" in
   true|false) ;;
@@ -524,20 +525,15 @@ case "${APPLY_OBSERVABILITY_DNS}" in
   true|false) ;;
   *) fail "APPLY_OBSERVABILITY_DNS는 true 또는 false여야 합니다." ;;
 esac
-requested_region="${AWS_REGION:-${AWS_DEFAULT_REGION:-$(aws configure get region --profile "${AWS_PROFILE}" 2>/dev/null || true)}}"
-[[ "${requested_region}" == "${EXPECTED_AWS_REGION}" ]] || fail "잘못된 AWS Region입니다: ${requested_region:-unset} (예상: ${EXPECTED_AWS_REGION})"
-export AWS_REGION="${requested_region}"
+petflow_validate_terraform_identity "tapply" || exit 1
+requested_region="${AWS_REGION}"
 
 [[ -d "${TERRAFORM_DIR}" ]] \
   || fail "Terraform DEV 디렉터리를 찾을 수 없습니다: ${TERRAFORM_DIR}"
 
 validate_gitops_checkout
 
-caller_account="$(aws sts get-caller-identity --query Account --output text)"
-[[ "${caller_account}" == "${EXPECTED_AWS_ACCOUNT_ID}" ]] \
-  || fail "잘못된 AWS Account입니다: ${caller_account}"
-log "AWS Account Guard 통과: ${caller_account}"
-log "AWS Region Guard 통과: ${requested_region}"
+caller_account="${PETFLOW_CALLER_ACCOUNT}"
 exec 9>"${LOCK_FILE}"
 flock -n 9 || fail "다른 PetFlow 인프라 Apply/Destroy 작업이 실행 중입니다."
 log "인프라 작업 Lock 획득: ${LOCK_FILE}"

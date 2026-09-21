@@ -109,18 +109,21 @@ data "aws_iam_policy_document" "bucket_policy" {
   }
 
   # 관리자 IAM User/Role(var.allowed_admin_role_arns) 외에는 로그 삭제/버킷 정책·라이프사이클 변경을 차단한다.
-  # allowed_admin_role_arns는 variables.tf에서 비어 있지 않은 IAM User/Role ARN 목록만
-  # 허용한다. 따라서 빈 NotPrincipal을 AWS에 전송하기 전에 Plan 단계에서 실패한다.
+  # aws:PrincipalArn은 AssumeRole 세션에서도 세션 ARN이 아닌 IAM Role ARN으로 평가되므로
+  # 공용 Terraform 실행 Role 하나를 예외로 두어 모든 승인 팀원이 같은 권한 경계를 사용한다.
   statement {
     sid    = "DenyLogTamperingByNonAdmins"
     effect = "Deny"
 
-    # 버킷 정책(Resource-based Policy)에서는 Principal을 생략하고 NotPrincipal만
-    # 단독으로 써야 "예외 목록 제외 전체"를 의미한다. 둘을 같이 쓰면 AWS가
-    # MalformedPolicy(Statement already has instance of Principal)로 거부한다.
-    not_principals {
+    principals {
       type        = "AWS"
-      identifiers = var.allowed_admin_role_arns
+      identifiers = ["*"]
+    }
+
+    condition {
+      test     = "ArnNotEquals"
+      variable = "aws:PrincipalArn"
+      values   = var.allowed_admin_role_arns
     }
 
     actions = [

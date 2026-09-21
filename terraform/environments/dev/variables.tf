@@ -112,9 +112,20 @@ variable "eks_public_access_cidrs" {
 }
 
 variable "eks_cluster_admin_principal_arns" {
-  description = "EKS Cluster Admin 권한을 부여할 IAM User/Role ARN 목록. 예: [\"arn:aws:iam::297165773875:user/ujibil2\"]"
+  description = "공용 Terraform 실행 Role 외에 EKS Cluster Admin 권한을 추가로 부여할 IAM User/Role ARN 목록"
   type        = list(string)
   default     = []
+}
+
+variable "terraform_execution_role_name" {
+  description = "Bootstrap 스택에서 보존 관리하는 팀 공용 Terraform 실행 IAM Role 이름"
+  type        = string
+  default     = "petflow-terraform-execution"
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9+=,.@_-]{1,64}$", var.terraform_execution_role_name))
+    error_message = "terraform_execution_role_name은 유효한 IAM Role 이름이어야 합니다."
+  }
 }
 
 variable "eks_cluster_log_types" {
@@ -265,15 +276,16 @@ variable "cloudtrail_cloudwatch_retention_days" {
 }
 
 variable "cloudtrail_admin_role_arns" {
-  description = "CloudTrail 로그 버킷의 삭제/정책변경이 허용되는 관리자 IAM User/Role ARN 목록. apply 전 실제 값 필요."
+  description = "공용 Terraform 실행 Role 외에 감사 로그 버킷 관리 예외로 둘 비상용 IAM User/Role ARN 목록"
   type        = list(string)
+  default     = []
 
   validation {
-    condition = length(var.cloudtrail_admin_role_arns) > 0 && alltrue([
+    condition = alltrue([
       for arn in var.cloudtrail_admin_role_arns :
       can(regex("^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:(user|role)/[A-Za-z0-9+=,.@_/-]+$", arn))
     ])
-    error_message = "cloudtrail_admin_role_arns에는 비어 있지 않은 IAM User/Role ARN 목록을 지정해야 합니다."
+    error_message = "cloudtrail_admin_role_arns에는 유효한 IAM User/Role ARN만 지정해야 합니다."
   }
 }
 

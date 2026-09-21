@@ -212,12 +212,12 @@ cp terraform/environments/dev/terraform.tfvars.example \
 **모든 명령은 프로젝트 루트(`infra/`)에서 실행한다.**
 
 ```bash
-./tinit.sh
-# → 필수 도구 / AWS 인증 / backend.hcl 존재 확인 후
+AWS_PROFILE=petflow-terraform-<사용자> ./tinit.sh
+# → 필수 도구 / 공용 Terraform Role / backend.hcl 존재 확인 후
 #    terraform init -backend-config=backend.hcl 실행
 #    성공 시 팀 공유 State S3 Bucket 에 연결됨
 
-./tplan.sh
+AWS_PROFILE=petflow-terraform-<사용자> ./tplan.sh
 # → 실제로 변경될 리소스가 있으면 계획이 보임 (없으면 "No changes")
 ```
 
@@ -233,17 +233,19 @@ git checkout dev && git pull
 git checkout -b feat/<작업이름>
 # ... Terraform 코드 편집 ...
 
-AWS_PROFILE=ujibil2 ./tplan.sh
-AWS_PROFILE=ujibil2 ./tapply.sh   # Public Web과 Private 관리 HTTPS까지 생성
+AWS_PROFILE=petflow-terraform-<사용자> ./tplan.sh
+AWS_PROFILE=petflow-terraform-<사용자> ./tapply.sh   # Public Web과 Private 관리 HTTPS까지 생성
 
 # 테스트 종료 후 전체 정리 (Tailscale/EKS 접근 가능한 환경)
-AWS_PROFILE=ujibil2 ./tdestroy.sh
+AWS_PROFILE=petflow-terraform-<사용자> ./tdestroy.sh
 
 git push -u origin feat/<작업이름>
 gh pr create --base dev
 ```
 
 State locking (`use_lockfile = true`) 덕분에 팀원 A 가 apply 중이면 B 는 자동 대기/거절되어 State 충돌이 방지된다.
+
+팀 공용 Role 설정과 온보딩 절차는 [팀 공용 Terraform 실행 권한](docs/team-terraform-access.md)을 참고한다.
 
 ## 각 스크립트가 하는 일
 

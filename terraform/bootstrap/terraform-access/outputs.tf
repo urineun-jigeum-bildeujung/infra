@@ -20,3 +20,14 @@ output "route53_delete_protection_policy_arn" {
   description = "보호 대상 Route53 Hosted Zone의 삭제를 명시적으로 거부하는 IAM Policy ARN"
   value       = aws_iam_policy.route53_delete_protection.arn
 }
+
+
+output "terraform_execution_role_arn" {
+  description = "승인된 팀원이 로컬 Terraform 실행 시 Assume할 공용 Role ARN"
+  value       = aws_iam_role.terraform_execution.arn
+}
+
+output "terraform_execution_assume_policy_arn" {
+  description = "승인된 IAM 사용자에게 연결되는 공용 Terraform Role Assume Policy ARN"
+  value       = aws_iam_policy.terraform_execution_assume.arn
+}

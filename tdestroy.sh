@@ -7,8 +7,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOCK_FILE="/tmp/petflow-dev-infra.lock"
 CNPG_AUTO_BACKUP_SCRIPT="${SCRIPT_DIR}/scripts/backup-cnpg-before-destroy.sh"
 CNPG_S3_BACKUP_SCRIPT="${SCRIPT_DIR}/scripts/cnpg-s3-backup.sh"
-EXPECTED_AWS_ACCOUNT_ID="297165773875"
-EXPECTED_AWS_REGION="ap-northeast-2"
 EXPECTED_EKS_CLUSTER_NAME="petflow-eks"
 
 fail() {
@@ -21,15 +19,12 @@ for command_name in aws terraform kubectl jq flock; do
     || fail "${command_name} 명령이 필요합니다."
 done
 
-[[ -n "${AWS_PROFILE:-}" ]] || fail "AWS_PROFILE을 명시해주세요. 예: AWS_PROFILE=ujibil2 ./tdestroy.sh"
+# shellcheck source=scripts/lib/terraform-auth.sh
+source "${SCRIPT_DIR}/scripts/lib/terraform-auth.sh"
+petflow_validate_terraform_identity "tdestroy" || exit 1
 
-aws_region="${AWS_REGION:-${AWS_DEFAULT_REGION:-$(aws configure get region --profile "${AWS_PROFILE}" 2>/dev/null || true)}}"
-[[ "${aws_region}" == "${EXPECTED_AWS_REGION}" ]] \
-  || fail "잘못된 AWS Region입니다: ${aws_region:-unset} (예상: ${EXPECTED_AWS_REGION})"
-
-caller_account="$(aws sts get-caller-identity --query Account --output text 2>/dev/null || true)"
-[[ "${caller_account}" == "${EXPECTED_AWS_ACCOUNT_ID}" ]] \
-  || fail "잘못된 AWS Account 또는 인증 정보입니다: ${caller_account:-unknown}"
+aws_region="${AWS_REGION}"
+caller_account="${PETFLOW_CALLER_ACCOUNT}"
 
 exec 9>"${LOCK_FILE}"
 flock -n 9 || fail "다른 PetFlow 인프라 Apply/Destroy 작업이 실행 중입니다."

@@ -44,8 +44,12 @@ primary_pod="$("${K[@]}" get pods \
   -l 'cnpg.io/cluster=petflow-db,cnpg.io/instanceRole=primary' \
   -o jsonpath='{.items[0].metadata.name}')"
 [[ -n "${primary_pod}" ]] || { echo 'CNPG primary Pod를 찾지 못했습니다.' >&2; exit 1; }
+# 사용량이 없는 DEV DB에서는 pg_switch_wal()만 호출하면 새 WAL이 생기지 않을 수 있다.
+# 업무 테이블을 변경하지 않는 논리 메시지를 먼저 기록해 검증용 WAL을 확실히 만든다.
 "${K[@]}" exec "${primary_pod}" -c postgres -- \
-  psql -U postgres -d postgres -Atqc 'SELECT pg_switch_wal()' >/dev/null
+  psql -U postgres -d postgres -v ON_ERROR_STOP=1 -Atqc \
+  "SELECT pg_logical_emit_message(false, 'petflow-tdestroy', 'ensure pre-destroy WAL archive'); SELECT pg_switch_wal();" \
+  >/dev/null
 while (( $(date +%s) < deadline )); do
   base_count="$(aws s3api list-objects-v2 --bucket "${BUCKET}" \
     --prefix "${prefix}/${CLUSTER}/base/" --max-keys 1 --query KeyCount --output text)"

@@ -26,9 +26,10 @@ locals {
   # 앱에는 CloudFront 기본 도메인 대신 이 고정 이미지 도메인을 전달한다.
   uploads_custom_domain_name = "image.${var.domain_name}"
 
-  # CNPG 기반 이미지와 Web Repository는 오래된 로컬 tfvars에서 빠져 있어도 보존한다.
+  # CNPG 기반 이미지와 Web/API Gateway Repository는 오래된 로컬 tfvars에서 빠져 있어도 보존한다.
   # 실제 PostgreSQL 이미지는 tapply.sh가 apply 후 push한다.
   dev_ecr_repository_names = distinct(concat(var.ecr_repository_names, [
+    "api-gateway",
     "postgresql-pg-bigm",
     "web",
   ]))

@@ -108,6 +108,7 @@ cloudtrail_cloudwatch_retention_days = 30
 # (예: petflow/auth-service, petflow/web). 새 이미지가 생기면 이 목록에 이름만 추가한다
 # (기존 Repository 영향 없음).
 ecr_repository_names = [
+  "api-gateway",
   "auth-service",
   "member-service",
   "order-service",

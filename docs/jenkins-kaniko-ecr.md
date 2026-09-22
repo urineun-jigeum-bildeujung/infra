@@ -29,10 +29,21 @@ Pod Identity를 사용하므로 ServiceAccount에 `eks.amazonaws.com/role-arn` a
 
 ## ECR Repository
 
-기존 5개 Repository에 다음 2개를 추가한다.
+Terraform은 현재 다음 배포 이미지 Repository를 관리한다.
 
+- `petflow/api-gateway`
+- `petflow/auth-service`
+- `petflow/member-service`
 - `petflow/notification-service`
+- `petflow/order-service`
+- `petflow/payment-service`
+- `petflow/product-service`
 - `petflow/review-service`
+- `petflow/web`
+- `petflow/postgresql-pg-bigm`
+
+서비스 입력에는 `api-gateway`처럼 이미지 이름만 지정한다. ECR 모듈이
+`petflow/` 접두사를 붙이므로 `petflow/api-gateway`를 입력하면 안 된다.
 
 Registry 주소는 `297165773875.dkr.ecr.ap-northeast-2.amazonaws.com`이다.
 
@@ -83,6 +94,12 @@ arn:aws:ecr:ap-northeast-2:297165773875:repository/petflow/*
 
 Repository 생성·삭제와 Lifecycle Policy 수정 권한은 부여하지 않는다.
 
+## 보존 정책
+
+- Repository는 `prevent_destroy = true`, `force_delete = false`이며 `tdestroy.sh`의 Terraform destroy 대상에서 ECR 모듈을 제외한다.
+- 태그 없는 이미지는 7일 후 만료하고, 태그 유무와 관계없이 최신 20개 이미지만 유지한다.
+- 전체 Git commit SHA 태그도 20개 제한에서 예외가 아니다. 20개보다 오래된 버전까지 롤백해야 한다면 배포 빈도와 롤백 기간을 기준으로 `lifecycle_keep_count`를 먼저 늘린다.
+
 ## Terraform Output
 
 ```bash
@@ -101,6 +118,7 @@ aws eks list-pod-identity-associations \
 aws ecr describe-repositories \
   --region ap-northeast-2 \
   --repository-names \
+  petflow/api-gateway \
   petflow/notification-service \
   petflow/review-service
 ```
@@ -110,5 +128,5 @@ aws ecr describe-repositories \
 1. Jenkins Pipeline이 Kaniko Pod를 생성한다.
 2. Pod의 `serviceAccountName`이 `jenkins-kaniko`인지 확인한다.
 3. 정적 AWS Access Key 없이 Pod Identity 자격증명을 사용하는지 확인한다.
-4. 두 Repository 중 대상 Repository로 이미지를 Push한다.
+4. 대상 Repository로 이미지를 Push한다.
 5. ECR에서 해당 Image Tag와 Digest가 생성됐는지 확인한다.

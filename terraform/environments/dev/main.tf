@@ -239,6 +239,11 @@ module "workload_iam" {
       service_account = "generic-service"
       prefix          = "profiles"
     }
+    order-service = {
+      namespace       = "order-service"
+      service_account = "generic-service"
+      prefix          = "orders"
+    }
   }
 
   # 운영 DB와 분리된 복원 검증 Cluster도 같은 cnpg/ prefix를 읽을 수 있게 한다.

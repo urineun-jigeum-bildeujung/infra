@@ -123,6 +123,7 @@ data "aws_iam_policy_document" "tls_only" {
       resources = [
         "${each.value.arn}/reviews/*",
         "${each.value.arn}/profiles/*",
+        "${each.value.arn}/orders/*",
       ]
 
       principals {

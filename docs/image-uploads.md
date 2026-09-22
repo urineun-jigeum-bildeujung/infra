@@ -1,6 +1,6 @@
-# 리뷰/프로필 이미지 업로드 인프라
+# 리뷰/프로필/클레임 이미지 업로드 인프라
 
-DEV의 기존 `petflow-dev-uploads` 버킷에서 `reviews/`와 `profiles/` 경로를 사용한다.
+DEV의 기존 `petflow-dev-uploads` 버킷에서 `reviews/`, `profiles/`, `orders/` 경로를 사용한다.
 버킷은 비공개, SSE-S3 암호화, HTTPS 강제와 삭제 방지 설정을 유지한다.
 브라우저는 백엔드가 발급한 presigned PUT URL로 S3에 직접 업로드하고,
 이미지 조회는 OAC로 연결한 CloudFront 기본 HTTPS 도메인을 사용한다.
@@ -30,6 +30,7 @@ terraform output -raw uploads_cloudfront_distribution_id
 | --- | --- | --- | --- |
 | review-service | review-service | generic-service | reviews/ |
 | member-service | member-service | generic-service | profiles/ |
+| order-service | order-service | generic-service | orders/ |
 
 기존 Helm 차트의 기본 ServiceAccount 이름은 `generic-service`다.
 배포 시 실제 namespace/ServiceAccount와 association의 값이 일치하는지 확인한다.
@@ -67,7 +68,7 @@ if (!response.ok) throw new Error("이미지 업로드 실패");
 
 S3 요청에는 서비스 JWT를 붙이지 않고 File 원본을 보낸다.
 web의 공통 API 래퍼는 백엔드 base URL/JWT/JSON 처리가 있으므로 S3 PUT에 사용하지 않는다.
-PUT 성공 후에만 반환받은 fileUrl을 리뷰/프로필 등록 API에 전달한다.
+PUT 성공 후에만 반환받은 fileUrl을 리뷰/프로필/클레임 등록 API에 전달한다.
 
 CORS는 기본적으로 `https://leechs.shop`, `http://localhost:3000`의 PUT과
 Content-Type/x-amz-* 헤더를 허용한다. 실제 개발 origin은 tfvars의
@@ -87,7 +88,7 @@ uploads 버킷은 Versioning 비활성 구성을 사용한다. 과거에 Version
 버킷 삭제 방지와 별개로 pending Lifecycle은 EKS를 삭제한 동안에도 동작한다.
 
 CloudFront 조회는 공개 이미지용이다. OAC는 S3 origin을 보호하지만 사용자별 조회 권한을 제공하지 않는다.
-CloudFront는 `reviews/*`, `profiles/*`를 uploads 버킷에서, `products/*`를
+CloudFront는 `reviews/*`, `profiles/*`, `orders/*`를 uploads 버킷에서, `products/*`를
 product-images 버킷에서 조회한다. 각 버킷 정책은 해당 경로만 조회하도록 허용한다.
 상품 이미지는 `petflow-dev-product-images` 버킷의 `products/{productId}/{uuid}.{ext}`에
 수동 업로드하고, DB에는 `https://image.leechs.shop/products/{productId}/{uuid}.{ext}`를 저장한다.

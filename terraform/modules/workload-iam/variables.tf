@@ -14,7 +14,7 @@ variable "cluster_name" {
 }
 
 variable "uploads_bucket_arn" {
-  description = "리뷰/프로필 이미지용 uploads 버킷 ARN"
+  description = "리뷰/프로필/클레임 이미지용 uploads 버킷 ARN"
   type        = string
   default     = null
 
@@ -40,9 +40,9 @@ variable "image_upload_workloads" {
       can(regex("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$", workload.namespace)) &&
       length(workload.service_account) <= 253 &&
       can(regex("^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$", workload.service_account)) &&
-      contains(["reviews", "profiles"], workload.prefix)
+      contains(["reviews", "profiles", "orders"], workload.prefix)
     ])
-    error_message = "서비스/namespace/ServiceAccount에는 유효한 Kubernetes 이름을, prefix에는 reviews 또는 profiles를 지정해야 합니다."
+    error_message = "서비스/namespace/ServiceAccount에는 유효한 Kubernetes 이름을, prefix에는 reviews, profiles 또는 orders를 지정해야 합니다."
   }
 
   validation {

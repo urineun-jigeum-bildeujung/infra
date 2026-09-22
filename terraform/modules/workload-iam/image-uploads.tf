@@ -1,4 +1,4 @@
-# 리뷰/프로필 서비스에 경로별 S3 권한을 EKS Pod Identity로 연결한다.
+# 리뷰/프로필/클레임 서비스에 경로별 S3 권한을 EKS Pod Identity로 연결한다.
 data "aws_iam_policy_document" "image_upload_trust" {
   for_each = var.image_upload_workloads
 

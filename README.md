@@ -129,6 +129,7 @@ terraform/environments/
 - **AWS CLI v2** — `aws sts get-caller-identity` 로 자격 증명 확인 가능해야 함
 - **Bash** — Linux / macOS / WSL. 스크립트는 실행 비트가 이미 `git` 에 등록되어 있어 별도 `chmod +x` 불필요
 - **Go Task v3** — `tapply.sh`의 GitOps core bootstrap 실행에 필요 (`task --version`으로 확인)
+- **GitHub CLI** — 새 클러스터의 Jenkins Git Credential 복구 시 로그인과 `sever` 읽기·`gitops-value` 쓰기 권한 필요
 
 AWS 자격 증명은 **절대 Repository 에 커밋하지 않고**, 로컬에서 AWS CLI Profile / IAM Role / SSO / 환경변수 중 편한 방법으로 구성한다.
 
@@ -253,7 +254,7 @@ State locking (`use_lockfile = true`) 덕분에 팀원 A 가 apply 중이면 B �
 |---|---|---|
 | `tinit.sh` | 프로젝트 루트 | 필수 도구 / 인증 / `backend.hcl` 확인 후 `terraform init -backend-config=backend.hcl` |
 | `tplan.sh` | 프로젝트 루트 | AWS 인증 확인 → `terraform fmt` + `validate` + `plan` |
-| `tapply.sh` | 프로젝트 루트 | Terraform → CNPG 복원 또는 initdb·새 WAL 경로 검증 → GitOps → Public Web·Grafana ALB Target → Route53 → HTTPS |
+| `tapply.sh` | 프로젝트 루트 | Terraform → CNPG 복원/initdb → Jenkins Secret·Ready/Endpoint → GitOps → Public Web·Grafana ALB Target → Route53 → HTTPS |
 | `tdestroy.sh` | 프로젝트 루트 | CNPG S3 base/WAL 백업 → EBS 온디맨드 백업/검증 → Kubernetes/LB/Persistent Storage Cleanup → DEV Terraform 삭제 |
 | `scripts/apply-infra.sh` | 내부 | Terraform Apply와 CNPG PostgreSQL 이미지 준비. 직접 실행하지 않음 |
 | `scripts/backup-cnpg-before-destroy.sh` | 내부 | CNPG PVC/PV/EBS 식별 → Backup Job 생성/대기 → schema v2 Manifest 생성 |

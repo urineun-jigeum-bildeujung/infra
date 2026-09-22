@@ -27,6 +27,9 @@ LOCK_FILE="/tmp/petflow-dev-infra.lock"
 TEMP_DNS_PLAN=""
 FINAL_HTTP_CODE=""
 FINAL_HTTPS_CODE=""
+JENKINS_CI_STATUS="not-checked"
+JENKINS_READY_TIMEOUT_SECONDS="${JENKINS_READY_TIMEOUT_SECONDS:-900}"
+JENKINS_READY_POLL_INTERVAL_SECONDS="${JENKINS_READY_POLL_INTERVAL_SECONDS:-10}"
 
 cleanup() {
   if [[ -n "${TEMP_DNS_PLAN}" && -f "${TEMP_DNS_PLAN}" ]]; then
@@ -196,6 +199,67 @@ diagnose_gitops() {
   kubectl --context "${KUBECONFIG_CONTEXT}" --namespace argocd get pods -o wide >&2 || true
   kubectl --context "${KUBECONFIG_CONTEXT}" --namespace argocd \
     get applications.argoproj.io -o wide >&2 || true
+}
+
+diagnose_jenkins() {
+  log "Jenkins 진단 정보를 출력합니다. Secret 값은 출력하지 않습니다."
+  kubectl --context "${KUBECONFIG_CONTEXT}" --namespace argocd \
+    get application jenkins -o wide >&2 || true
+  kubectl --context "${KUBECONFIG_CONTEXT}" --namespace jenkins \
+    get statefulset,pod,service,endpointslice -o wide >&2 || true
+  kubectl --context "${KUBECONFIG_CONTEXT}" --namespace jenkins \
+    get events --sort-by=.metadata.creationTimestamp 2>/dev/null | tail -n 40 >&2 || true
+}
+
+prepare_jenkins_credentials() {
+  if ! (
+    cd "${GITOPS_DIR}"
+    task bootstrap:credentials KUBE_CONTEXT="${KUBECONFIG_CONTEXT}"
+  ); then
+    fail "Jenkins 필수 Secret 준비에 실패했습니다. Git credential이 없으면 gh 인증과 sever 읽기·gitops-value 쓰기 권한을 준비한 뒤 같은 tapply.sh를 재실행하세요."
+  fi
+
+  log "Jenkins 필수 Secret 준비·키 검증 완료 (값 비공개)"
+}
+
+wait_for_jenkins() {
+  local deadline
+  local sync_status
+  local health_status
+  local desired_count
+  local ready_count
+  local endpoint_count
+
+  deadline=$(($(date +%s) + JENKINS_READY_TIMEOUT_SECONDS))
+  while (( $(date +%s) < deadline )); do
+    sync_status="$(kubectl --context "${KUBECONFIG_CONTEXT}" --namespace argocd \
+      get application jenkins -o jsonpath='{.status.sync.status}' 2>/dev/null || true)"
+    health_status="$(kubectl --context "${KUBECONFIG_CONTEXT}" --namespace argocd \
+      get application jenkins -o jsonpath='{.status.health.status}' 2>/dev/null || true)"
+    desired_count="$(kubectl --context "${KUBECONFIG_CONTEXT}" --namespace jenkins \
+      get statefulset jenkins -o jsonpath='{.spec.replicas}' 2>/dev/null || true)"
+    ready_count="$(kubectl --context "${KUBECONFIG_CONTEXT}" --namespace jenkins \
+      get statefulset jenkins -o jsonpath='{.status.readyReplicas}' 2>/dev/null || true)"
+    endpoint_count="$(kubectl --context "${KUBECONFIG_CONTEXT}" --namespace jenkins \
+      get endpointslice -l kubernetes.io/service-name=jenkins -o json 2>/dev/null \
+      | jq '[.items[].endpoints[]? | select(.conditions.ready == true)] | length' \
+      || printf '0')"
+
+    if [[ "${sync_status}" == "Synced" && "${health_status}" == "Healthy" \
+      && "${desired_count}" =~ ^[1-9][0-9]*$ \
+      && "${ready_count:-0}" == "${desired_count}" \
+      && "${endpoint_count}" =~ ^[1-9][0-9]*$ ]]; then
+      JENKINS_CI_STATUS="ready (statefulSet=${ready_count}/${desired_count}, endpoints=${endpoint_count}, scan=2m)"
+      log "Jenkins CI 준비 완료: ${JENKINS_CI_STATUS}"
+      return
+    fi
+
+    log "Jenkins 준비 대기 중: application=${sync_status:-unknown}/${health_status:-unknown}, statefulSet=${ready_count:-0}/${desired_count:-0}, endpoints=${endpoint_count:-0}"
+    sleep "${JENKINS_READY_POLL_INTERVAL_SECONDS}"
+  done
+
+  diagnose_jenkins
+  fail "Jenkins가 제한 시간 내 Synced/Healthy/Ready 및 Service Endpoint 상태가 되지 않았습니다. Secret 복구 후 tapply.sh를 재실행하면 완료된 앞 단계는 유지됩니다."
 }
 
 diagnose_alb_controller() {
@@ -506,6 +570,7 @@ print_final_summary() {
   zone_id="$(terraform -chdir="${WEB_DNS_DIR}" output -raw route53_zone_id)"
   aws route53 list-resource-record-sets --hosted-zone-id "${zone_id}" --query "ResourceRecordSets[?Name=='leechs.shop.' && Type=='A'].{Name:Name,Alias:AliasTarget.DNSName}" --output table
   log "Public Web: HTTP=${FINAL_HTTP_CODE:-skipped}, HTTPS=${FINAL_HTTPS_CODE:-skipped}"
+  log "Jenkins CI: ${JENKINS_CI_STATUS}"
   log "=============================================="
 }
 
@@ -525,6 +590,12 @@ case "${APPLY_OBSERVABILITY_DNS}" in
   true|false) ;;
   *) fail "APPLY_OBSERVABILITY_DNS는 true 또는 false여야 합니다." ;;
 esac
+
+[[ "${JENKINS_READY_TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]] \
+  || fail "JENKINS_READY_TIMEOUT_SECONDS는 양의 정수여야 합니다."
+[[ "${JENKINS_READY_POLL_INTERVAL_SECONDS}" =~ ^[1-9][0-9]*$ ]] \
+  || fail "JENKINS_READY_POLL_INTERVAL_SECONDS는 양의 정수여야 합니다."
+
 petflow_validate_terraform_identity "tapply" || exit 1
 requested_region="${AWS_REGION}"
 
@@ -538,7 +609,7 @@ exec 9>"${LOCK_FILE}"
 flock -n 9 || fail "다른 PetFlow 인프라 Apply/Destroy 작업이 실행 중입니다."
 log "인프라 작업 Lock 획득: ${LOCK_FILE}"
 
-log "[1/10] Terraform DEV Apply와 PostgreSQL 이미지 준비"
+log "[1/13] Terraform DEV Apply와 PostgreSQL 이미지 준비"
 PETFLOW_INTERNAL_ORCHESTRATOR=true "${SCRIPT_DIR}/scripts/apply-infra.sh"
 
 cluster_name="$(terraform -chdir="${TERRAFORM_DIR}" output -raw eks_cluster_name)"
@@ -546,7 +617,7 @@ node_group_name="$(terraform -chdir="${TERRAFORM_DIR}" output -raw eks_node_grou
 aws_region="$(terraform -chdir="${TERRAFORM_DIR}" output -raw aws_region)"
 [[ "${aws_region}" == "${EXPECTED_AWS_REGION}" ]] || fail "Terraform output Region 불일치: ${aws_region}"
 
-log "[2/10] EKS ACTIVE와 Private API 준비 대기"
+log "[2/13] EKS ACTIVE와 Private API 준비 대기"
 wait_for_eks_active "${cluster_name}" "${aws_region}"
 aws eks update-kubeconfig \
   --name "${cluster_name}" \
@@ -555,13 +626,16 @@ aws eks update-kubeconfig \
 kubectl config use-context "${KUBECONFIG_CONTEXT}" >/dev/null
 wait_for_eks_readyz
 
-log "[3/10] Worker Node Ready 대기"
+log "[3/13] Worker Node Ready 대기"
 wait_for_worker_nodes "${cluster_name}" "${node_group_name}" "${aws_region}"
 
-log "[4/11] CNPG 백업 복원 또는 최초 initdb, 새 WAL 경로 및 base backup 검증"
+log "[4/13] CNPG 백업 복원 또는 최초 initdb, 새 WAL 경로 및 base backup 검증"
 GITOPS_DIR="${GITOPS_DIR}" "${SCRIPT_DIR}/scripts/restore-cnpg-before-gitops.sh"
 
-log "[5/11] GitOps Bootstrap"
+log "[5/13] Jenkins 필수 Secret 준비와 키 검증"
+prepare_jenkins_credentials
+
+log "[6/13] GitOps Bootstrap"
 if ! (
   cd "${GITOPS_DIR}"
   task bootstrap:core
@@ -570,21 +644,24 @@ if ! (
   fail "GitOps bootstrap:core 실행에 실패했습니다."
 fi
 
-log "[6/11] AWS Load Balancer Controller GitOps Sync와 Ready 대기"
+log "[7/13] Jenkins GitOps Sync와 Ready·Endpoint 대기"
+wait_for_jenkins
+
+log "[8/13] AWS Load Balancer Controller GitOps Sync와 Ready 대기"
 wait_for_alb_controller
 
-log "[7/11] Web Ingress와 Public ALB active 대기"
+log "[9/13] Web Ingress와 Public ALB active 대기"
 wait_for_web_alb "${aws_region}"
 
-log "[8/11] Public Web ALB Target Health 검증"
+log "[10/13] Public Web ALB Target Health 검증"
 verify_target_health "${aws_region}"
 
-log "[9/11] Grafana Public ALB Target·Route53·HTTPS 및 Prometheus 비공개 Guard"
+log "[11/13] Grafana Public ALB Target·Route53·HTTPS 및 Prometheus 비공개 Guard"
 APPLY_OBSERVABILITY_DNS="${APPLY_OBSERVABILITY_DNS}" \
   PETFLOW_INTERNAL_ORCHESTRATOR=true \
   "${SCRIPT_DIR}/scripts/configure-observability-access.sh"
 
-log "[10/11] Web Route53 Alias와 공개 HTTPS"
+log "[12/13] Web Route53 Alias와 공개 HTTPS"
 if [[ "${APPLY_WEB_DNS}" == true ]]; then
   apply_web_dns "${aws_region}"
   verify_public_web
@@ -593,7 +670,7 @@ else
   log "ALB/Target Guard는 통과했습니다. DNS까지 복구하려면 APPLY_WEB_DNS=true로 실행하세요."
 fi
 
-log "[11/11] 최종 상태 요약"
+log "[13/13] 최종 상태 요약"
 print_final_summary "${cluster_name}" "${aws_region}"
 
 log "DEV 전체 Apply 완료"

@@ -1,6 +1,6 @@
 # DEV 전체 Apply Runbook
 
-`tapply.sh` 한 번으로 Terraform, EKS, GitOps, Public Web ALB, 공개 Grafana와 비공개 Prometheus 정책, Route53 Alias와 HTTPS까지 생성·검증한다. 신규 생성과 재적용 모두 같은 명령을 사용한다.
+`tapply.sh` 한 번으로 Terraform, EKS, Jenkins CI 준비, GitOps, Public Web ALB, 공개 Grafana와 비공개 Prometheus 정책, Route53 Alias와 HTTPS까지 생성·검증한다. 신규 생성과 재적용 모두 같은 명령을 사용한다.
 
 ## 사전 요구사항
 
@@ -12,8 +12,16 @@ aws sts get-caller-identity
 ```
 
 GitOps 기본 경로는 Infra 저장소와 같은 상위 디렉터리의 `../gitops`다. 다른 위치를 쓸 때만
-`GITOPS_DIR` 환경변수로 재정의한다. Controller/ALB 복구는 `task bootstrap:core`를 사용하므로
-GitHub CLI 로그인에 의존하지 않는다. Jenkins Credential은 별도로 `task bootstrap:credentials`를 실행한다.
+`GITOPS_DIR` 환경변수로 재정의한다. GitOps 저장소의 유효한 Jenkins Secret은 그대로 보존된다. 새
+클러스터처럼 `jenkins-git-credentials`가 없으면 실행 전에 GitHub CLI 로그인이 준비돼 있어야 하며,
+로그인 계정에는 `sever` 읽기와 `gitops-value` 쓰기 권한이 필요하다.
+
+```bash
+gh auth status
+```
+
+`tapply.sh`는 `gh auth login`을 자동 실행하지 않는다. 입력이나 권한이 부족하면 Jenkins Secret 단계에서
+실패하며, 인증을 별도로 준비한 뒤 같은 명령을 재실행한다.
 
 ## 실행
 
@@ -40,14 +48,16 @@ APPLY_OBSERVABILITY_DNS=false AWS_PROFILE=ujibil2 ./tapply.sh
 
 1. 내부 `scripts/apply-infra.sh`로 Terraform과 CNPG PostgreSQL 이미지를 준비한다.
 2. EKS `ACTIVE`, Private API `/readyz`, Worker Node `Ready`를 기다린다.
-3. GitOps 저장소에서 `task bootstrap:core`를 실행한다.
-4. Controller와 cert-manager Application, Deployment, Certificate, Webhook Endpoint를 기다린다.
-5. Web Ingress와 `petflow-dev-public` Public ALB를 기다리고 Target Health를 검증한다.
-6. `grafana-public`이 기존 `petflow-dev-public` ALB에 합류할 때까지 기다린다.
-7. Public ALB/VPC/태그/ACM/Grafana Host Rule과 Grafana Target Health를 검증한다.
-8. `dev-management-dns`에서 Grafana Alias를 갱신하고 Prometheus 기존 Alias를 제거한 뒤 인증 정책을 검증한다.
-9. `dev-web-dns` Alias를 적용하고 Public Web HTTP Redirect와 HTTPS 200을 검증한다.
-10. EKS, Argo CD, ALB, Target, Route53 최종 상태를 출력한다.
+3. CNPG를 복원하거나 최초 initdb를 수행한다.
+4. GitOps 저장소의 `bootstrap:credentials`로 Jenkins 필수 Secret을 보존·복구하고 필수 키를 검증한다.
+5. `task bootstrap:core`를 실행한다.
+6. Jenkins Application, StatefulSet Ready와 준비된 Service Endpoint를 기다린다.
+7. Controller와 cert-manager Application, Deployment, Certificate, Webhook Endpoint를 기다린다.
+8. Web Ingress와 `petflow-dev-public` Public ALB를 기다리고 Target Health를 검증한다.
+9. `grafana-public`이 기존 `petflow-dev-public` ALB에 합류할 때까지 기다린다.
+10. Public ALB/VPC/태그/ACM/Grafana Host Rule과 Grafana Target Health를 검증한다.
+11. 관리·Web DNS Alias와 공개 HTTPS를 검증한다.
+12. Web 복구 상태와 Jenkins CI 준비 상태를 구분해 최종 출력한다.
 
 ## GitOps Checkout Guard
 
@@ -117,6 +127,8 @@ AWS_PROFILE=ujibil2 \
 | GitOps Guard 실패 | Working Tree, branch, origin, origin/main HEAD |
 | EKS `/readyz` 실패 | Tailscale Route, 현재 kubeconfig Endpoint |
 | Worker Ready 실패 | Node Group Health, EC2 Status, CNI Event |
+| Jenkins Secret 준비 실패 | `petflow-dev` context, 필수 키, `gh auth status`, `sever` 읽기·`gitops-value` 쓰기 권한 |
+| Jenkins Ready 실패 | Jenkins Application, StatefulSet/Pod Event, Service EndpointSlice |
 | Controller GitOps Sync 실패 | Argo CD Application, Pod Identity Association, Deployment log |
 | ALB 미생성 | IngressClass/Annotation, Subnet Tag, Controller IAM |
 | Target unhealthy | Web Pod/Service/Endpoint, Health Check Path |
@@ -130,6 +142,9 @@ AWS_PROFILE=ujibil2 \
 - EKS와 Node Group `ACTIVE`
 - Worker Node가 desired 수만큼 `Ready`
 - Controller Deployment/Pod `1/1`
+- Jenkins 두 필수 Secret의 필수 키가 비어 있지 않음
+- Jenkins Application `Synced/Healthy`, StatefulSet `Ready`
+- Jenkins Service Endpoint가 1개 이상 준비됨 (`periodicFolderTrigger` 2분 설정 유지)
 - Controller Certificate가 모두 `Ready=True`
 - Webhook Service Endpoint가 1개 이상 존재
 - Web Ingress ADDRESS 생성

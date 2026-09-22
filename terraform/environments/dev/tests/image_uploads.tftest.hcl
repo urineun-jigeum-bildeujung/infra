@@ -110,7 +110,7 @@ run "pending_expiration_and_private_cdn" {
         toset(statement.resources) == toset([
           "${aws_s3_bucket.app["uploads"].arn}/reviews/*",
           "${aws_s3_bucket.app["uploads"].arn}/profiles/*",
-          "${aws_s3_bucket.app["uploads"].arn}/claims/*",
+          "${aws_s3_bucket.app["uploads"].arn}/orders/*",
         ]) &&
         alltrue([
           for principal in statement.principals :
@@ -125,7 +125,7 @@ run "pending_expiration_and_private_cdn" {
       ]) && toset([
       for statement in data.aws_iam_policy_document.tls_only["uploads"].statement : statement.sid
     ]) == toset(["DenyInsecureTransport", "AllowUploadsCloudFrontRead"])
-    error_message = "TLS 강제와 해당 배포의 reviews/profiles/claims 조회 권한을 하나의 버킷 정책에 보존해야 합니다."
+    error_message = "TLS 강제와 해당 배포의 reviews/profiles/orders 조회 권한을 하나의 버킷 정책에 보존해야 합니다."
   }
 
   assert {
@@ -189,7 +189,7 @@ run "service_permissions_and_pod_identity" {
       order-service = {
         namespace       = "order-service"
         service_account = "generic-service"
-        prefix          = "claims"
+        prefix          = "orders"
       }
     }
   }
@@ -223,7 +223,7 @@ run "service_permissions_and_pod_identity" {
       for name, document in data.aws_iam_policy_document.image_upload : [
         for statement in document.statement :
         toset(statement.resources) == toset([
-          "arn:aws:s3:::petflow-dev-uploads/${name == "review-service" ? "reviews" : name == "member-service" ? "profiles" : "claims"}/*",
+          "arn:aws:s3:::petflow-dev-uploads/${name == "review-service" ? "reviews" : name == "member-service" ? "profiles" : "orders"}/*",
           ]) && alltrue([
           for action in statement.actions : contains([
             "s3:PutObject", "s3:PutObjectTagging", "s3:GetObject", "s3:GetObjectTagging",

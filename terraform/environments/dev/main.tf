@@ -242,7 +242,7 @@ module "workload_iam" {
     order-service = {
       namespace       = "order-service"
       service_account = "generic-service"
-      prefix          = "claims"
+      prefix          = "orders"
     }
   }
 

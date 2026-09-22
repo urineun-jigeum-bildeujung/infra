@@ -1,0 +1,16 @@
+# Terraform state (민감 정보 포함 가능, 로컬/원격 backend로 관리)
+*.tfstate
+*.tfstate.*
+.terraform/
+# .terraform.lock.hcl 은 provider 버전을 고정해주는 파일이라
+# 오히려 커밋하는 게 권장사항입니다 (여기서는 제외하지 않음)
+
+# 변수 파일에 비밀값을 넣는 경우 대비
+*.tfvars
+!example.tfvars
+
+# 기타
+.DS_Store
+crash.log
+override.tf
+override.tf.json

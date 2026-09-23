@@ -1,6 +1,6 @@
 # DEV Capacity 및 비용 운영 기준
 
-기준일: 2026-09-12
+기준일: 2026-09-23
 
 이 문서는 Petflow DEV EKS의 기본 Capacity 선정 근거, 확장 판단 기준과 비용 절감
 원칙을 기록한다. Production 용량 산정 기준으로 사용하지 않는다.
@@ -15,9 +15,9 @@
 | Capacity Type | On-Demand |
 | AMI | AL2023 x86_64 Standard |
 | Root EBS / Node | 50 GiB |
-| min / desired / max | 2 / 3 / 5 |
+| min / desired / max | 2 / 4 / 5 |
 
-기본 3대의 이론상 Capacity는 6 vCPU, 24 GiB다. 최대 5대에서는 10 vCPU,
+기본 4대의 이론상 Capacity는 8 vCPU, 32 GiB다. 최대 5대에서는 10 vCPU,
 40 GiB다. Kubernetes가 실제 Pod에 제공하는 Allocatable은 OS, kubelet, DaemonSet
 예약분 때문에 이론값보다 작으므로 운영 판단에는 `kubectl describe node`와 Metrics를
 사용한다.
@@ -33,7 +33,7 @@ GitOps PR #23 기준 DEV 초기값은 다음과 같다.
 | Strimzi Operator | 250m / 1 | 512Mi / 1Gi | 없음 |
 | Request 합계(Limit 제외) | 600m | 1280Mi(약 1.25Gi) | gp3 18Gi |
 
-Redis/Kafka 기본 Request만 보면 Cluster 이론 Capacity 6 vCPU/24GiB에서 즉시 Node를
+Redis/Kafka 기본 Request만 보면 Cluster 이론 Capacity 8 vCPU/32GiB에서 즉시 Node를
 증설할 수준은 아니다. Limit 합계는 동시에 예약되는 Capacity가 아니며 실제 사용량과
 스케줄링 가능 여부는 다른 Platform/Application Pod, Node Allocatable과 함께 판단한다.
 배포 후 `kubectl top`, Pending Event, OOMKilled와 CPU Throttling을 다시 확인한다.
@@ -44,19 +44,19 @@ Redis/Kafka 기본 Request만 보면 Cluster 이론 Capacity 6 vCPU/24GiB에서 
 
 | 구분 | 이전 | 현재 |
 |---|---:|---:|
-| Node 수 | 2 | 3 |
+| Node 수 | 2 | 4 |
 | vCPU / Node | 2 | 2 |
 | Memory / Node | 4 GiB | 8 GiB |
-| 전체 vCPU | 4 | 6 |
-| 전체 Memory | 8 GiB | 24 GiB |
+| 전체 vCPU | 4 | 8 |
+| 전체 Memory | 8 GiB | 32 GiB |
 
 CI 실행 시 측정된 이전 Node 사용률은 CPU 약 87%/95%, Memory 약 85%/85%였다.
 Jenkins Agent Pod 하나는 Gradle, Kaniko, Trivy, Crane 컨테이너를 함께 실행하며
 약 550m CPU Request와 1088Mi Memory Request가 필요했다. 두 Node에 여유가 없어
 `FailedScheduling`, `Insufficient cpu`, `Insufficient memory`가 발생할 수 있었다.
 
-CPU 기본 Capacity는 4 vCPU에서 6 vCPU로 약 50% 증가했고, Memory는 8 GiB에서
-24 GiB로 약 200% 증가했다. Backend, Jenkins, Redis, Kafka, CNPG/PostgreSQL,
+CPU 기본 Capacity는 4 vCPU에서 8 vCPU로 약 100% 증가했고, Memory는 8 GiB에서
+32 GiB로 약 300% 증가했다. Backend, Jenkins, Redis, Kafka, CNPG/PostgreSQL,
 pgvector, Prometheus/Grafana, MLflow와 AI Service가 함께 올라갈 계획이므로 CPU
 최적화 계열보다 Memory 여유가 있는 General Purpose 계열을 선택했다.
 
@@ -88,7 +88,7 @@ Metrics Server 또는 Prometheus가 배포되기 전에는 `kubectl top`이 동�
 
 1. Pod Request/Limit이 실제 사용량과 맞는지 먼저 확인한다.
 2. 일시적인 부족은 Karpenter Node Provisioning으로 흡수한다.
-3. 상시 사용량 증가라면 Managed Node Group 실제 수량을 3에서 4, 이후 5로 조정한다.
+3. 상시 사용량 증가라면 Managed Node Group 실제 수량을 기본 4대에서 최대 5대로 조정한다.
 4. 5대에서도 지속적으로 부족하면 더 큰 Instance 또는 전용 NodePool을 검토한다.
 5. 변경 후 Pending, OOM, Throttling과 비용을 다시 측정한다.
 
@@ -112,7 +112,7 @@ Pod Pending
   → 부하 종료 후 Node 정리
 ```
 
-Karpenter는 기본 Capacity 부족을 숨기는 대체 수단이 아니다. `m7i-flex.large` 3대를
+Karpenter는 기본 Capacity 부족을 숨기는 대체 수단이 아니다. `m7i-flex.large` 4대를
 기본으로 유지하고 순간 부하를 처리한다. 다음과 같이 Scheduling 특성이 명확히 달라질
 때만 NodePool 분리를 검토한다.
 
@@ -131,7 +131,7 @@ Job 완료 후 제거하는 것을 목표로 한다.
 DEV는 운영 수준의 고가용성보다 검증 목적과 비용 절감을 우선한다.
 
 - NAT Gateway는 1개만 사용한다.
-- Managed Node는 기본 3대, 최대 5대로 제한한다.
+- Managed Node는 기본 4대, 최대 5대로 제한한다.
 - 상시 GPU Node를 두지 않는다.
 - 불필요한 ALB/NLB와 EBS/PVC를 정기적으로 확인한다.
 - 작업하지 않는 기간에는 `tdestroy.sh`로 삭제한다.

@@ -1,0 +1,173 @@
+# S3 모듈: 애플리케이션에서 사용하는 S3 Bucket 을 정의한다.
+#
+# 용도별 Bucket (var.bucket_purposes 로 관리):
+#   - static         : Frontend 정적 파일
+#   - product-images : 상품 이미지
+#   - uploads        : 사용자 업로드 파일
+#   - db-backups     : CNPG 백업 (DEV root 에서 삭제/Versioning 설정 override)
+#
+# Naming Rule:
+#   <project_name>-<environment>-<용도>   예: petflow-dev-static
+#   S3 Bucket 이름은 전역 유일해야 하므로 프로젝트/환경 접두사로 충돌을 피한다.
+#
+# 주의:
+#   Terraform State 저장용 S3 Bucket 은 terraform/bootstrap/state-backend 에서 별도로 관리한다.
+#   이 모듈에서 만드는 Bucket 은 절대 State 저장 용도로 사용하지 않는다.
+#
+# 보안 기본값 (state-backend 와 동일 패턴):
+#   - Terraform 삭제 방지 및 객체 강제 삭제 차단
+#   - Public Access Block 4항목 모두 차단
+#   - AES256 서버측 암호화
+#   - HTTPS(TLS) 이외 요청 거부 Bucket Policy
+#
+# uploads 직접 업로드용 CORS/Lifecycle 및 비공개 S3 조회용 CloudFront는 uploads.tf에서 관리한다.
+
+locals {
+  # 용도 → 실제 Bucket 이름 map
+  buckets = { for p in var.bucket_purposes : p => "${var.project_name}-${var.environment}-${p}" }
+}
+
+resource "aws_s3_bucket" "app" {
+  for_each = local.buckets
+
+  bucket = each.value
+
+  # 애플리케이션 데이터와 배포 자산을 보존하기 위해 객체 자동 삭제를 허용하지 않는다.
+  force_destroy = false
+
+  # 전체 인프라 destroy에서도 S3 Bucket 삭제를 차단한다.
+  lifecycle {
+    prevent_destroy = true
+  }
+
+  tags = {
+    Name    = each.value
+    Purpose = each.key
+  }
+}
+
+# Public 접근 4가지 항목 모두 차단
+resource "aws_s3_bucket_public_access_block" "app" {
+  for_each = aws_s3_bucket.app
+
+  bucket = each.value.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+# 서버측 암호화 (SSE-S3, AES256)
+resource "aws_s3_bucket_server_side_encryption_configuration" "app" {
+  for_each = aws_s3_bucket.app
+
+  bucket = each.value.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+# Versioning — 공통 기본값 또는 버킷별 override 가 true 일 때 리소스 생성
+resource "aws_s3_bucket_versioning" "app" {
+  for_each = {
+    for purpose, bucket in aws_s3_bucket.app : purpose => bucket
+    if coalesce(try(var.bucket_settings[purpose].enable_versioning, null), var.enable_versioning)
+  }
+
+  bucket = each.value.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+# HTTPS(TLS) 이외의 모든 요청 거부
+data "aws_iam_policy_document" "tls_only" {
+  for_each = aws_s3_bucket.app
+
+  statement {
+    sid    = "DenyInsecureTransport"
+    effect = "Deny"
+
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+
+    actions = ["s3:*"]
+
+    resources = [
+      each.value.arn,
+      "${each.value.arn}/*",
+    ]
+
+    condition {
+      test     = "Bool"
+      variable = "aws:SecureTransport"
+      values   = ["false"]
+    }
+  }
+
+  # 기존 TLS 강제 정책에 OAC 조회 권한을 합쳐 버킷 정책 덮어쓰기를 방지한다.
+  dynamic "statement" {
+    for_each = each.key == "uploads" && var.enable_image_uploads ? [1] : []
+
+    content {
+      sid     = "AllowUploadsCloudFrontRead"
+      effect  = "Allow"
+      actions = ["s3:GetObject"]
+      resources = [
+        "${each.value.arn}/reviews/*",
+        "${each.value.arn}/profiles/*",
+        "${each.value.arn}/orders/*",
+      ]
+
+      principals {
+        type        = "Service"
+        identifiers = ["cloudfront.amazonaws.com"]
+      }
+
+      condition {
+        test     = "StringEquals"
+        variable = "AWS:SourceArn"
+        values   = [aws_cloudfront_distribution.uploads[0].arn]
+      }
+    }
+  }
+
+  dynamic "statement" {
+    for_each = each.key == "product-images" && var.enable_image_uploads ? [1] : []
+
+    content {
+      sid       = "AllowProductImagesCloudFrontRead"
+      effect    = "Allow"
+      actions   = ["s3:GetObject"]
+      resources = ["${each.value.arn}/products/*"]
+
+      principals {
+        type        = "Service"
+        identifiers = ["cloudfront.amazonaws.com"]
+      }
+
+      condition {
+        test     = "StringEquals"
+        variable = "AWS:SourceArn"
+        values   = [aws_cloudfront_distribution.uploads[0].arn]
+      }
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "tls_only" {
+  for_each = aws_s3_bucket.app
+
+  bucket = each.value.id
+  policy = data.aws_iam_policy_document.tls_only[each.key].json
+
+  # Public Access Block 의 block_public_policy 와의 경합을 피하기 위해 순서를 보장한다.
+  depends_on = [aws_s3_bucket_public_access_block.app]
+}

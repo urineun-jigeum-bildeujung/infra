@@ -1,0 +1,121 @@
+# Dev 환경 tfvars 예시 파일
+# 실제 값은 terraform.tfvars 로 복사하여 사용하며, terraform.tfvars 는 Git 에 커밋하지 않는다.
+
+aws_region   = "ap-northeast-2"
+project_name = "petflow"
+environment  = "dev"
+
+# Route53에서 관리할 프로젝트 루트 도메인
+domain_name = "leechs.shop"
+
+# =============================================================================
+# Network — 아키텍처 그림 기준 값
+# =============================================================================
+vpc_cidr = "10.0.0.0/20"
+
+# 2 AZ 구성 (EKS 최소 요구사항 = 2 AZ)
+# 기존 VPC의 2b / 2d AZ를 유지한다. m7i-flex.large는 두 AZ 모두에서 사용 가능하다.
+azs = ["ap-northeast-2b", "ap-northeast-2d"]
+
+# azs 순서와 매칭. EKS Pod IP 여유를 위해 Private Subnet을 /22로 구성한다.
+public_subnet_cidrs  = ["10.0.0.0/24", "10.0.1.0/24"]
+private_subnet_cidrs = ["10.0.4.0/22", "10.0.8.0/22"]
+
+# DEV 는 비용 절약을 위해 NAT Gateway 1개만 사용 (첫 번째 AZ 에 배치, 두 Private Subnet 이 공유)
+# Prod 로 승격 시 false 로 변경 (AZ 마다 NAT 하나씩 → HA)
+single_nat_gateway = true
+
+# =============================================================================
+# Tailscale 관리자 VPN
+# =============================================================================
+# AWS Private Subnet에 Petflow 전용 Subnet Router를 생성한다.
+# Secret 값이 아닌 Secrets Manager ARN만 설정한다.
+enable_tailscale_router     = true
+tailscale_instance_type     = "t3.micro"
+tailscale_oauth_secret_arn  = "arn:aws:secretsmanager:ap-northeast-2:ACCOUNT_ID:secret:petflow/tailscale/oauth-secret-xxxxxx"
+
+# =============================================================================
+# EKS
+# =============================================================================
+# EKS 버전. AWS 지원 버전 목록: aws eks describe-cluster-versions
+# 초기 결정: 1.35
+eks_cluster_version = "1.35"
+
+# Endpoint 정책 — 초기엔 편의를 위해 Public 도 열고, Tailscale 연결 후 좁힌다.
+#   1단계: public + private, cidrs=0.0.0.0/0        ← 현재
+#   2단계: public + private, cidrs=[관리자 IP 목록]
+#   최종:  private only, Tailscale 로만 접근
+eks_endpoint_public_access  = true
+eks_endpoint_private_access = true
+eks_public_access_cidrs     = ["0.0.0.0/0"]
+
+# 공용 Terraform 실행 Role은 코드에서 자동 등록된다. 아래에는 추가 관리 주체만 등록한다.
+terraform_execution_role_name = "petflow-terraform-execution"
+eks_cluster_admin_principal_arns = [
+  "arn:aws:iam::297165773875:user/ujibil1",
+  "arn:aws:iam::297165773875:user/ujibil2",
+  "arn:aws:iam::297165773875:user/ujibil5",
+  "arn:aws:iam::297165773875:user/ujibil6",
+]
+
+# Managed Node Group
+# CI/CD와 플랫폼 Workload의 메모리 여유를 위해 m7i-flex.large (2 vCPU / 8 GiB)를 사용한다.
+# 기본 3대를 유지하고 Managed Node Group은 2~5대 범위로 확장한다.
+eks_node_instance_types = ["m7i-flex.large"]
+eks_node_ami_type       = "AL2023_x86_64_STANDARD"
+eks_node_disk_size      = 50 # Jenkins / Kaniko / Trivy 및 플랫폼 이미지 저장 공간
+eks_node_desired_size   = 3
+eks_node_min_size       = 2
+eks_node_max_size       = 5
+
+# =============================================================================
+# S3 (애플리케이션용)
+# =============================================================================
+# 용도별로 <project>-<env>-<용도> 이름의 Bucket 이 생성된다.
+# 예: petflow-dev-static / petflow-dev-product-images / petflow-dev-uploads
+# 빈 Bucket 은 과금되지 않으며, 새 용도가 필요하면 목록에 추가만 하면 된다.
+s3_bucket_purposes = ["static", "product-images", "uploads", "db-backups"]
+
+# 프론트 origin만 지정하며 URL 경로 또는 wildcard는 넣지 않는다.
+uploads_allowed_origins        = ["https://leechs.shop", "http://localhost:3000"]
+pending_upload_expiration_days = 3
+
+# CNPG Pod Identity — 잠정 이름이며 GitOps Cluster 와 함께 변경한다.
+# db-backups 는 목록에서 빠져도 root module 이 추가한다.
+cnpg_namespace            = "database"
+cnpg_service_account_name = "petflow-db" # 기본 CNPG ServiceAccount 이름 = Cluster.metadata.name
+cnpg_backup_prefix        = "cnpg"       # ObjectStore destinationPath: s3://petflow-dev-db-backups/cnpg
+
+# 복원 검증 Cluster와 CNPG 전용 EBS Backup 계약
+cnpg_restore_service_account_name   = "petflow-db-restore"
+cnpg_ebs_backup_tag_key             = "PetflowBackup"
+cnpg_ebs_backup_tag_value           = "petflow-cnpg" # GitOps gp3-cnpg와 반드시 일치
+cnpg_ebs_snapshot_schedule          = "cron(0 19 * * ? *)" # 매일 04:00 KST
+cnpg_ebs_snapshot_retention_days    = 7
+
+# =============================================================================
+# CloudTrail
+# =============================================================================
+# 공용 Terraform 실행 Role은 코드에서 자동 허용된다. 비상용 추가 주체가 없다면 빈 목록을 유지한다.
+cloudtrail_admin_role_arns = []
+cloudtrail_s3_retention_days         = 30
+cloudtrail_cloudwatch_retention_days = 30
+
+# =============================================================================
+# ECR
+# =============================================================================
+# Source of Truth: 백엔드(sever) dev 브랜치의 services/ 디렉터리 + 프론트엔드(web) 등
+# 컨테이너 이미지를 push하는 각 레포. 실제 생성 이름은 <project_name>/<image_name> 형태
+# (예: petflow/auth-service, petflow/web). 새 이미지가 생기면 이 목록에 이름만 추가한다
+# (기존 Repository 영향 없음).
+ecr_repository_names = [
+  "api-gateway",
+  "auth-service",
+  "member-service",
+  "order-service",
+  "payment-service",
+  "product-service",
+  "notification-service",
+  "review-service",
+  "web",
+]

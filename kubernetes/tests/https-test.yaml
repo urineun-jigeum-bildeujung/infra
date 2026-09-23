@@ -1,0 +1,74 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: https-test
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: https-test
+  namespace: https-test
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: https-test
+  template:
+    metadata:
+      labels:
+        app: https-test
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.31.5-alpine
+          ports:
+            - name: http
+              containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: https-test
+  namespace: https-test
+spec:
+  type: ClusterIP
+  selector:
+    app: https-test
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: https-test
+  namespace: https-test
+  annotations:
+    alb.ingress.kubernetes.io/load-balancer-name: petflow-dev-https-test
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/certificate-arn: __ACM_CERTIFICATE_ARN__
+    alb.ingress.kubernetes.io/healthcheck-path: /
+    alb.ingress.kubernetes.io/tags: Project=petflow,Environment=dev,Purpose=https-test
+spec:
+  ingressClassName: alb
+  rules:
+    - host: test.leechs.shop
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: https-test
+                port:
+                  number: 80

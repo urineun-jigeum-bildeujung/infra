@@ -1,0 +1,34 @@
+# terraform-access 스택 tfvars 예시
+# 실제 값은 terraform.tfvars 로 복사하여 사용하며, terraform.tfvars 는 Git 에 커밋하지 않는다.
+
+aws_region        = "ap-northeast-2"
+project_name      = "petflow"
+state_bucket_name = "petflow-tfstate"
+
+# GitHub Actions OIDC Role 을 신뢰할 GitHub 소유 조직 / 저장소
+github_org  = "your-github-org"
+github_repo = "infra"
+
+# 영구 보존할 Route53 Hosted Zone과 Terraform 실행 사용자
+protected_route53_zone_ids = ["Z10307303I03OBEI24QKC"]
+route53_protection_user_names = [
+  "ujibil1",
+  "ujibil2",
+  "ujibil3",
+  "ujibil4",
+  "ujibil5",
+]
+
+
+# 팀원은 자신의 IAM 사용자로 로그인한 뒤 이 공용 Role을 Assume한다.
+terraform_execution_role_name = "petflow-terraform-execution"
+terraform_execution_user_names = [
+  "ujibil1",
+  "ujibil2",
+  "ujibil3",
+  "ujibil4",
+  "ujibil5",
+]
+
+# 4시간. 필요 시 3600~43200초 범위에서 조정한다.
+terraform_execution_max_session_duration = 14400

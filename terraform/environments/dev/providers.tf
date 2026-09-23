@@ -1,0 +1,41 @@
+# Dev 환경 Terraform 및 AWS Provider 설정
+
+terraform {
+  # S3 Backend 의 native state locking(use_lockfile = true) 은 Terraform 1.10 부터 사용 가능하다.
+  required_version = ">= 1.10.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
+
+# AWS 서울 리전을 기본 배포 리전으로 사용한다.
+# default_tags 로 Dev 환경이 만드는 모든 AWS 리소스에 공통 태그가 자동 부여된다.
+provider "aws" {
+  region = var.aws_region
+
+  default_tags {
+    tags = {
+      Project     = var.project_name
+      Environment = var.environment
+      ManagedBy   = "Terraform"
+    }
+  }
+}
+
+# CloudFront Viewer 인증서는 AWS 요구사항상 반드시 us-east-1에 있어야 한다.
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+
+  default_tags {
+    tags = {
+      Project     = var.project_name
+      Environment = var.environment
+      ManagedBy   = "Terraform"
+    }
+  }
+}

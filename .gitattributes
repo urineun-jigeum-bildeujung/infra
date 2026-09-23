@@ -1,0 +1,30 @@
+# 리포지토리 전역 line ending 정책
+# 팀원의 로컬 core.autocrlf 설정에 관계없이 항상 아래 규칙이 적용된다.
+
+# 기본: 텍스트 자동 감지 후 LF 로 정규화하여 저장 및 체크아웃
+* text=auto eol=lf
+
+# 명시적으로 LF 를 강제해야 하는 파일 (실행/파싱 시 CRLF 는 오류 원인이 됨)
+*.sh      text eol=lf
+*.tf      text eol=lf
+*.tfvars  text eol=lf
+*.hcl     text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+*.json    text eol=lf
+*.md      text eol=lf
+
+# example 파일들도 동일
+*.example text eol=lf
+
+# 바이너리로 취급 (line ending 변환/diff 억제)
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.svg  binary
+*.pdf  binary
+*.zip  binary
+*.tar  binary
+*.gz   binary

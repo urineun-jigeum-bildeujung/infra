@@ -1,0 +1,64 @@
+# Platform IAM 모듈이 노출하는 값 정의
+# Pod Identity 방식이므로 GitOps Helm values 에 role-arn annotation 은 필요 없지만,
+# EC2NodeClass(role 필드)와 운영 확인용으로 아래 값들을 노출한다.
+
+output "alb_controller_role_arn" {
+  description = "AWS Load Balancer Controller Role ARN (Pod Identity 로 kube-system/aws-load-balancer-controller 에 연결됨)"
+  value       = aws_iam_role.alb_controller.arn
+}
+
+output "alb_controller_service_account" {
+  description = "AWS Load Balancer Controller Pod Identity와 Helm이 맞춰야 하는 ServiceAccount 계약"
+  value = {
+    namespace = aws_eks_pod_identity_association.alb_controller.namespace
+    name      = aws_eks_pod_identity_association.alb_controller.service_account
+  }
+}
+
+output "karpenter_controller_role_arn" {
+  description = "Karpenter Controller Role ARN (Pod Identity 로 kube-system/karpenter 에 연결됨)"
+  value       = aws_iam_role.karpenter_controller.arn
+}
+
+output "karpenter_node_role_name" {
+  description = "Karpenter 가 만드는 Worker 노드용 Role 이름. GitOps 의 EC2NodeClass spec.role 에 이 값을 사용한다."
+  value       = aws_iam_role.karpenter_node.name
+}
+
+output "karpenter_node_role_arn" {
+  description = "Karpenter Node Role ARN"
+  value       = aws_iam_role.karpenter_node.arn
+}
+
+output "jenkins_kaniko_role_arn" {
+  description = "Jenkins Kaniko Pod가 EKS Pod Identity로 사용하는 IAM Role ARN"
+  value       = aws_iam_role.jenkins_kaniko.arn
+}
+
+output "jenkins_ecr_policy_arn" {
+  description = "Jenkins Kaniko의 petflow ECR Push/Pull Policy ARN"
+  value       = aws_iam_policy.jenkins_ecr.arn
+}
+
+output "external_secrets_role_arn" {
+  description = "External Secrets Operator가 EKS Pod Identity로 사용하는 IAM Role ARN"
+  value       = aws_iam_role.external_secrets.arn
+}
+
+output "external_secrets_policy_arn" {
+  description = "External Secrets Operator의 petflow Secrets Manager 읽기 Policy ARN"
+  value       = aws_iam_policy.external_secrets.arn
+}
+
+output "external_secrets_pod_identity_association_id" {
+  description = "External Secrets Operator용 EKS Pod Identity Association ID"
+  value       = aws_eks_pod_identity_association.external_secrets.association_id
+}
+
+output "external_secrets_service_account" {
+  description = "External Secrets Operator Helm 설치와 Pod Identity가 공유하는 Namespace/ServiceAccount"
+  value = {
+    namespace = aws_eks_pod_identity_association.external_secrets.namespace
+    name      = aws_eks_pod_identity_association.external_secrets.service_account
+  }
+}

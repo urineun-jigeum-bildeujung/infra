@@ -1,0 +1,8 @@
+aws_region   = "ap-northeast-2"
+project_name = "petflow"
+environment  = "dev"
+
+domain_name       = "leechs.shop"
+web_alb_name      = "petflow-dev-public"
+alb_ingress_stack = "petflow-public"
+eks_cluster_name  = "petflow-eks"

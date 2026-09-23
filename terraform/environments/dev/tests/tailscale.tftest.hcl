@@ -1,0 +1,208 @@
+mock_provider "aws" {
+  mock_data "aws_caller_identity" {
+    defaults = {
+      account_id = "297165773875"
+    }
+  }
+
+  mock_data "aws_partition" {
+    defaults = {
+      partition = "aws"
+    }
+  }
+
+  mock_data "aws_ssm_parameter" {
+    defaults = {
+      value = "ami-0123456789abcdef0"
+    }
+  }
+
+  mock_data "aws_iam_policy_document" {
+    defaults = {
+      json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}"
+    }
+  }
+}
+
+run "router_is_private_and_ssm_managed" {
+  command = apply
+
+  module {
+    source = "../../modules/tailscale"
+  }
+
+  variables {
+    project_name                  = "petflow"
+    environment                   = "dev"
+    aws_region                    = "ap-northeast-2"
+    tailscale_oauth_secret_arn    = "arn:aws:secretsmanager:ap-northeast-2:297165773875:secret:petflow/tailscale/oauth-secret-ABC123"
+    vpc_id                        = "vpc-0123456789abcdef0"
+    vpc_cidr                      = "10.0.0.0/20"
+    private_subnet_id             = "subnet-0123456789abcdef0"
+    eks_cluster_security_group_id = "sg-0123456789abcdef0"
+    instance_type                 = "t3.micro"
+    root_volume_size              = 8
+  }
+
+  assert {
+    condition = (
+      aws_instance.router.subnet_id == "subnet-0123456789abcdef0" &&
+      aws_instance.router.associate_public_ip_address == false
+    )
+    error_message = "Router는 지정한 Private Subnet에 Public IP 없이 배치되어야 합니다."
+  }
+
+  assert {
+    condition     = length(aws_security_group.router.ingress) == 0
+    error_message = "Router Security Group에는 Public SSH/RDP를 포함한 inbound 규칙이 없어야 합니다."
+  }
+  assert {
+    condition = (
+      aws_vpc_security_group_ingress_rule.eks_api_from_router.security_group_id == "sg-0123456789abcdef0" &&
+      aws_vpc_security_group_ingress_rule.eks_api_from_router.referenced_security_group_id == aws_security_group.router.id &&
+      aws_vpc_security_group_ingress_rule.eks_api_from_router.from_port == 443 &&
+      aws_vpc_security_group_ingress_rule.eks_api_from_router.to_port == 443
+    )
+    error_message = "EKS Private API는 Router Security Group에서 들어오는 TCP 443만 허용해야 합니다."
+  }
+
+
+  assert {
+    condition = (
+      aws_instance.router.metadata_options[0].http_endpoint == "enabled" &&
+      aws_instance.router.metadata_options[0].http_tokens == "required"
+    )
+    error_message = "Router EC2는 IMDSv2를 강제해야 합니다."
+  }
+
+  assert {
+    condition = (
+      aws_instance.router.root_block_device[0].encrypted == true &&
+      aws_instance.router.root_block_device[0].delete_on_termination == true
+    )
+    error_message = "Router root EBS는 암호화하고 인스턴스와 함께 정리해야 합니다."
+  }
+
+  assert {
+    condition = (
+      aws_iam_role_policy_attachment.ssm.policy_arn ==
+      "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+    )
+    error_message = "Router IAM Role에는 SSM Managed Instance Core 정책을 연결해야 합니다."
+  }
+
+  assert {
+    condition = alltrue([
+      for statement in data.aws_iam_policy_document.tailscale_secret.statement :
+      statement.sid == "ReadTailscaleOAuthSecret" &&
+      toset(statement.actions) == toset(["secretsmanager:GetSecretValue"]) &&
+      toset(statement.resources) == toset([
+        "arn:aws:secretsmanager:ap-northeast-2:297165773875:secret:petflow/tailscale/oauth-secret-ABC123"
+      ])
+    ])
+    error_message = "Router IAM Role은 지정한 OAuth Secret의 GetSecretValue만 허용해야 합니다."
+  }
+
+  assert {
+    condition = alltrue([
+      for statement in data.aws_iam_policy_document.tailscale_state.statement :
+      statement.sid == "ReadWriteTailscaleState" &&
+      toset(statement.actions) == toset(["ssm:GetParameter", "ssm:PutParameter"]) &&
+      toset(statement.resources) == toset([
+        "arn:aws:ssm:ap-northeast-2:297165773875:parameter/petflow/dev/tailscale/router-state"
+      ])
+    ])
+    error_message = "Router IAM Role은 지정한 Tailscale State Parameter 하나에만 Get/Put 권한을 가져야 합니다."
+  }
+
+  assert {
+    condition = (
+      aws_iam_role_policy.tailscale_state.name == "petflow-dev-tailscale-router-state" &&
+      aws_iam_role_policy.tailscale_state.role == aws_iam_role.router.id
+    )
+    error_message = "Tailscale State 최소 권한 정책은 Router IAM Role에 연결되어야 합니다."
+  }
+
+  assert {
+    condition = alltrue([
+      for statement in data.aws_iam_policy_document.ec2_trust.statement :
+      toset(statement.actions) == toset(["sts:AssumeRole"]) &&
+      length(statement.principals) == 1 &&
+      alltrue([
+        for principal in statement.principals :
+        principal.type == "Service" &&
+        toset(principal.identifiers) == toset(["ec2.amazonaws.com"])
+      ])
+    ])
+    error_message = "Router IAM Role은 EC2 서비스만 신뢰해야 합니다."
+  }
+
+  assert {
+    condition = (
+      strcontains(aws_instance.router.user_data, "net.ipv4.ip_forward = 1") &&
+      strcontains(aws_instance.router.user_data, "https://tailscale.com/install.sh") &&
+      strcontains(aws_instance.router.user_data, "aws secretsmanager get-secret-value") &&
+      strcontains(aws_instance.router.user_data, "systemctl stop tailscaled") &&
+      strcontains(aws_instance.router.user_data, "tailscaled.service.d/10-persistent-state.conf") &&
+      strcontains(aws_instance.router.user_data, "--state=arn:aws:ssm:ap-northeast-2:297165773875:parameter/petflow/dev/tailscale/router-state") &&
+      strcontains(aws_instance.router.user_data, "aws ssm get-parameter") &&
+      strcontains(aws_instance.router.user_data, "STATE_PARAMETER_EXISTS") &&
+      strcontains(aws_instance.router.user_data, "OAuth 재등록은 수행하지 않습니다") &&
+      strcontains(aws_instance.router.user_data, "--auth-key=\"file:$${OAUTH_SECRET_FILE}\"") &&
+      strcontains(aws_instance.router.user_data, "?ephemeral=false&preauthorized=true") &&
+      strcontains(aws_instance.router.user_data, "--advertise-tags=\"tag:petflow-router\"") &&
+      strcontains(aws_instance.router.user_data, "--advertise-routes=\"10.0.0.0/20\"") &&
+      !strcontains(aws_instance.router.user_data, "set -euxo pipefail") &&
+      !strcontains(lower(aws_instance.router.user_data), "tskey-")
+    )
+    error_message = "User Data는 State를 SSM에서 복구하고 최초 1회만 Secret 노출 없이 OAuth 등록해야 합니다."
+  }
+
+  assert {
+    condition     = aws_instance.router.source_dest_check == true
+    error_message = "초기 Tailscale 기본 SNAT 구성에서는 source/destination check를 유지합니다."
+  }
+}
+
+run "reject_too_small_root_volume" {
+  command = plan
+
+  module {
+    source = "../../modules/tailscale"
+  }
+
+  variables {
+    project_name                  = "petflow"
+    environment                   = "dev"
+    aws_region                    = "ap-northeast-2"
+    tailscale_oauth_secret_arn    = "arn:aws:secretsmanager:ap-northeast-2:297165773875:secret:petflow/tailscale/oauth-secret-ABC123"
+    vpc_id                        = "vpc-0123456789abcdef0"
+    vpc_cidr                      = "10.0.0.0/20"
+    private_subnet_id             = "subnet-0123456789abcdef0"
+    eks_cluster_security_group_id = "sg-0123456789abcdef0"
+    root_volume_size              = 4
+  }
+
+  expect_failures = [var.root_volume_size]
+}
+
+run "reject_wildcard_secret_arn" {
+  command = plan
+
+  module {
+    source = "../../modules/tailscale"
+  }
+
+  variables {
+    project_name                  = "petflow"
+    environment                   = "dev"
+    aws_region                    = "ap-northeast-2"
+    tailscale_oauth_secret_arn    = "arn:aws:secretsmanager:ap-northeast-2:297165773875:secret:*"
+    vpc_id                        = "vpc-0123456789abcdef0"
+    vpc_cidr                      = "10.0.0.0/20"
+    private_subnet_id             = "subnet-0123456789abcdef0"
+    eks_cluster_security_group_id = "sg-0123456789abcdef0"
+  }
+
+  expect_failures = [var.tailscale_oauth_secret_arn]
+}

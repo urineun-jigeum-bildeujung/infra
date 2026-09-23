@@ -1,0 +1,62 @@
+name: Terraform DEV plan
+
+# 수동 실행만 허용한다. AWS 인증이 필요한 plan은 공개 PR에서 실행하지 않는다.
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  plan:
+    # 팀원이 수동 실행 시 선택한 브랜치에서 계획을 확인한다. 태그 실행은 제외한다.
+    if: github.repository == 'urineun-jigeum-bildeujung/infra' && github.ref_type == 'branch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: dev-plan
+    concurrency:
+      group: terraform-dev-plan
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: terraform/environments/dev
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      # Secret 원문이 아닌 ARN만 GitHub Environment 변수로 전달한다.
+      TAILSCALE_OAUTH_SECRET_ARN: ${{ vars.TAILSCALE_OAUTH_SECRET_ARN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check required configuration
+        run: |
+          test -n "$TAILSCALE_OAUTH_SECRET_ARN" || { echo 'dev-plan 변수 TAILSCALE_OAUTH_SECRET_ARN이 필요합니다.' >&2; exit 1; }
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.14.9
+          terraform_wrapper: false
+
+      - name: Authenticate to AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          # 기존 Role 재사용. 이 Role은 관리자 권한이므로 dev-plan Environment 승인 규칙이 필요하다.
+          role-to-assume: arn:aws:iam::297165773875:role/petflow-github-actions-terraform
+          role-session-name: terraform-plan-${{ github.run_id }}
+          aws-region: ap-northeast-2
+
+      - name: Initialize remote state
+        run: terraform init -input=false -lockfile=readonly -backend-config=backend.hcl.example
+
+      - name: Validate
+        run: terraform validate -no-color
+
+      # plan 결과는 로그에서만 확인한다. 민감할 수 있는 plan 파일을 artifact로 업로드하지 않는다.
+      - name: Show planned changes (no apply)
+        run: |
+          terraform plan -input=false -no-color -lock-timeout=5m \
+            -var-file=terraform.tfvars.example \
+            -var="tailscale_oauth_secret_arn=${TAILSCALE_OAUTH_SECRET_ARN}"

@@ -8,8 +8,8 @@ permissions: {}
 
 jobs:
   plan:
-    # 팀원이 수동 실행 시 선택한 브랜치에서 계획을 확인한다. 태그 실행은 제외한다.
-    if: github.repository == 'urineun-jigeum-bildeujung/infra' && github.ref_type == 'branch'
+    # 이 워크플로 버전은 dev 브랜치의 Terraform plan에만 사용한다.
+    if: github.repository == 'urineun-jigeum-bildeujung/infra' && github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: dev-plan
@@ -47,6 +47,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           role-to-assume: arn:aws:iam::297165773875:role/petflow-terraform-execution
           role-session-name: terraform-plan-${{ github.run_id }}
+          role-skip-session-tagging: true
           aws-region: ap-northeast-2
           allowed-account-ids: '297165773875'
 

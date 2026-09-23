@@ -1,0 +1,182 @@
+# ============================================================
+# KEDA — Kafka 연동 서비스 (order-service, payment-service, notification-service)
+# 각자 개별 네임스페이스에서 자체 Kafka 인증 Secret을 사용합니다.
+#
+# 주의: 아래 kafka-credentials는 구조를 보여주는 플레이스홀더입니다.
+# 실제 값은 여기 커밋하지 말고 External Secrets Operator로 교체하세요.
+# ============================================================
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kafka-credentials
+  namespace: order-service
+  annotations:
+    note: "placeholder - External Secrets Operator로 교체 예정"
+type: Opaque
+stringData:
+  sasl: "SCRAM-SHA-512"
+  username: "CHANGE_ME"
+  password: "CHANGE_ME"
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: kafka-auth
+  namespace: order-service
+spec:
+  secretTargetRef:
+    - { parameter: sasl, name: kafka-credentials, key: sasl }
+    - { parameter: username, name: kafka-credentials, key: username }
+    - { parameter: password, name: kafka-credentials, key: password }
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: order-service-scaler
+  namespace: order-service
+spec:
+  scaleTargetRef:
+    name: order-service
+  pollingInterval: 15
+  cooldownPeriod: 300
+  minReplicaCount: 1
+  # TODO 확인 필요: Kafka 토픽 파티션 수와 맞출 것
+  maxReplicaCount: 6
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 30
+          policies: [{ type: Percent, value: 100, periodSeconds: 30 }]
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          policies: [{ type: Pods, value: 1, periodSeconds: 60 }]
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: kafka.kafka.svc.cluster.local:9092
+        consumerGroup: order-service-group
+        topic: orders
+        lagThreshold: "100"
+        offsetResetPolicy: latest
+      authenticationRef:
+        name: kafka-auth
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kafka-credentials
+  namespace: payment-service
+  annotations:
+    note: "placeholder - External Secrets Operator로 교체 예정"
+type: Opaque
+stringData:
+  sasl: "SCRAM-SHA-512"
+  username: "CHANGE_ME"
+  password: "CHANGE_ME"
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: kafka-auth
+  namespace: payment-service
+spec:
+  secretTargetRef:
+    - { parameter: sasl, name: kafka-credentials, key: sasl }
+    - { parameter: username, name: kafka-credentials, key: username }
+    - { parameter: password, name: kafka-credentials, key: password }
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: payment-service-scaler
+  namespace: payment-service
+spec:
+  scaleTargetRef:
+    name: payment-service
+  pollingInterval: 15
+  cooldownPeriod: 300
+  minReplicaCount: 2
+  maxReplicaCount: 15
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 30
+          policies: [{ type: Percent, value: 100, periodSeconds: 30 }]
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          policies: [{ type: Pods, value: 1, periodSeconds: 60 }]
+  triggers:
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: "60"
+    - type: prometheus
+      metadata:
+        serverAddress: http://kube-prometheus-stack-prometheus.monitoring.svc:9090
+        metricName: http_requests_per_second
+        threshold: "50"
+        query: |
+          sum(rate(http_requests_total{namespace="payment-service",service="payment-service"}[2m]))
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kafka-credentials
+  namespace: notification-service
+  annotations:
+    note: "placeholder - External Secrets Operator로 교체 예정"
+type: Opaque
+stringData:
+  sasl: "SCRAM-SHA-512"
+  username: "CHANGE_ME"
+  password: "CHANGE_ME"
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: kafka-auth
+  namespace: notification-service
+spec:
+  secretTargetRef:
+    - { parameter: sasl, name: kafka-credentials, key: sasl }
+    - { parameter: username, name: kafka-credentials, key: username }
+    - { parameter: password, name: kafka-credentials, key: password }
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: notification-service-scaler
+  namespace: notification-service
+spec:
+  scaleTargetRef:
+    name: notification-service
+  pollingInterval: 15
+  cooldownPeriod: 300
+  minReplicaCount: 1
+  # TODO 확인 필요: 알림 관련 토픽 파티션 수와 맞출 것
+  maxReplicaCount: 6
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 30
+          policies: [{ type: Percent, value: 100, periodSeconds: 30 }]
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          policies: [{ type: Pods, value: 1, periodSeconds: 60 }]
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: kafka.kafka.svc.cluster.local:9092
+        consumerGroup: notification-service-group
+        # TODO 확인 필요: 실제 토픽명(알림 트리거용 토픽)으로 교체
+        topic: notifications
+        lagThreshold: "100"
+        offsetResetPolicy: latest
+      authenticationRef:
+        name: kafka-auth

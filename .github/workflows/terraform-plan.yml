@@ -18,7 +18,6 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: read
-      id-token: write
     defaults:
       run:
         working-directory: terraform/environments/dev
@@ -40,13 +39,16 @@ jobs:
           terraform_version: 1.14.9
           terraform_wrapper: false
 
-      - name: Authenticate to AWS via OIDC
+      - name: Assume shared Terraform role using environment secrets
         uses: aws-actions/configure-aws-credentials@v6.3.0
         with:
-          # 기존 Role 재사용. 이 Role은 관리자 권한이므로 dev-plan Environment 승인 규칙이 필요하다.
-          role-to-assume: arn:aws:iam::297165773875:role/petflow-github-actions-terraform
+          # dev-plan 승인 후 IAM 사용자 키로 기존 공용 Terraform Role을 Assume한다.
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::297165773875:role/petflow-terraform-execution
           role-session-name: terraform-plan-${{ github.run_id }}
           aws-region: ap-northeast-2
+          allowed-account-ids: '297165773875'
 
       - name: Initialize remote state
         run: terraform init -input=false -lockfile=readonly -backend-config=backend.hcl.example

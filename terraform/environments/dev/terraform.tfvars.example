@@ -60,11 +60,11 @@ eks_cluster_admin_principal_arns = [
 
 # Managed Node Group
 # CI/CD와 플랫폼 Workload의 메모리 여유를 위해 m7i-flex.large (2 vCPU / 8 GiB)를 사용한다.
-# 기본 3대를 유지하고 Managed Node Group은 2~5대 범위로 확장한다.
+# 기본 4대를 유지하고 Managed Node Group은 2~5대 범위로 확장한다.
 eks_node_instance_types = ["m7i-flex.large"]
 eks_node_ami_type       = "AL2023_x86_64_STANDARD"
 eks_node_disk_size      = 50 # Jenkins / Kaniko / Trivy 및 플랫폼 이미지 저장 공간
-eks_node_desired_size   = 3
+eks_node_desired_size   = 4
 eks_node_min_size       = 2
 eks_node_max_size       = 5
 

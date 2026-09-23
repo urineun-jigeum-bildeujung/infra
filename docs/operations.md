@@ -63,8 +63,8 @@ kubectl --context petflow-dev get pods -A
 정상 기준:
 
 - EKS `ACTIVE`, Public Endpoint OFF, Private Endpoint ON
-- Managed Node Group `ACTIVE`, `m7i-flex.large`, min/desired/max `2/3/5`
-- Worker Node 3대 `Ready`
+- Managed Node Group `ACTIVE`, `m7i-flex.large`, min/desired/max `2/4/5`
+- Worker Node 4대 `Ready` (Tailscale Router EC2 제외)
 - EKS 관리형 Add-on 모두 `ACTIVE`
 - Pending/CrashLoopBackOff/OOMKilled Pod 없음
 - Terraform Plan `No changes`

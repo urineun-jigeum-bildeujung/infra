@@ -32,6 +32,7 @@ locals {
     "api-gateway",
     "postgresql-pg-bigm",
     "web",
+    "nutrition",
   ]))
 }
 

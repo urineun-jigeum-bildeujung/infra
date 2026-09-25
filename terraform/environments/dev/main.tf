@@ -112,7 +112,10 @@ module "eks" {
   public_access_cidrs     = var.eks_public_access_cidrs
 
   # Access
-  cluster_admin_principal_arns = local.eks_cluster_admin_principal_arns
+  cluster_admin_principal_arns   = local.eks_cluster_admin_principal_arns
+  cluster_view_principal_arns    = var.eks_cluster_view_principal_arns
+  db_port_forward_principal_arns = var.eks_db_port_forward_principal_arns
+  audit_crd_principal_arns       = var.eks_audit_crd_principal_arns
 
   # Node Group
   node_instance_types = var.eks_node_instance_types

@@ -49,6 +49,7 @@ infra/
 │  ├─ dev-infra-validation.md # DEV 플랫폼 기반 검증 결과
 │  ├─ external-secrets-operator.md # ESO Pod Identity / Secrets Manager 연동 계약
 │  ├─ jenkins-kaniko-ecr.md   # Jenkins Kaniko / ECR 연동 계약
+│  ├─ management-domains.md   # Tailscale 전용 Argo CD·Jenkins Internal ALB/DNS
 │  ├─ management-observability-access.md # Grafana Public ALB·Prometheus Private 정책
 │  ├─ operations.md           # Apply / Destroy / 장애 확인 절차
 │  ├─ platform-integration.md  # Karpenter / ALB Controller GitOps 연동 계약
@@ -74,13 +75,14 @@ infra/
 │  └─ environments/          # 실제 Terraform 실행 위치 (Root Module)
 │     ├─ dev/                # DEV 환경: 위 모듈들을 조립
 │     ├─ dev-web-dns/        # Public Web ALB Route53 Alias 별도 State
-│     └─ dev-management-dns/ # Grafana Alias·Prometheus 기존 Alias 정리 별도 State
+│     └─ dev-management-dns/ # Grafana·Argo CD·Jenkins Alias 및 Prometheus 정리 별도 State
 │
 ├─ kubernetes/
 │  ├─ alb-controller/        # 비상 수동 복구용 AWS Load Balancer Controller Helm values
 │  └─ tests/                 # 임시 HTTPS End-to-End 테스트 manifest
 ├─ scripts/
 │  ├─ apply-infra.sh         # tapply.sh가 호출하는 Terraform 전용 내부 작업
+│  ├─ configure-management-access.sh # Argo CD·Jenkins Internal ALB/Target/DNS/TLS Guard
 │  ├─ configure-observability-access.sh # Grafana Public ALB/Target/DNS 및 Prometheus 비공개 Guard
 │  ├─ destroy-infra.sh       # tdestroy.sh가 호출하는 Terraform 전용 내부 작업
 │  ├─ install-alb-controller.sh  # GitOps 장애 시에만 쓰는 비상 수동 복구
@@ -88,7 +90,7 @@ infra/
 │
 ├─ tinit.sh                  # 프로젝트 루트에서 실행하는 편의 스크립트 (dev 대상)
 ├─ tplan.sh
-├─ tapply.sh                 # Terraform → GitOps → Public Web·Grafana ALB → DNS → HTTPS
+├─ tapply.sh                 # Terraform → GitOps → Public/Management ALB → DNS → HTTPS
 ├─ tdestroy.sh               # Kubernetes Cleanup → Terraform 전체 삭제
 ├─ trestore.sh               # tapply.sh 호환 래퍼(폐기 예정)
 ├─ alldestroy.sh             # tdestroy.sh 호환 래퍼(폐기 예정)
@@ -254,12 +256,13 @@ State locking (`use_lockfile = true`) 덕분에 팀원 A 가 apply 중이면 B �
 |---|---|---|
 | `tinit.sh` | 프로젝트 루트 | 필수 도구 / 인증 / `backend.hcl` 확인 후 `terraform init -backend-config=backend.hcl` |
 | `tplan.sh` | 프로젝트 루트 | AWS 인증 확인 → `terraform fmt` + `validate` + `plan` |
-| `tapply.sh` | 프로젝트 루트 | Terraform → CNPG 복원/initdb → Jenkins Secret·Ready/Endpoint → GitOps → Public Web·Grafana ALB Target → Route53 → HTTPS |
+| `tapply.sh` | 프로젝트 루트 | Terraform → CNPG 복원/initdb → GitOps → Public Web·Grafana 및 Private Argo CD·Jenkins ALB Target → Route53 → HTTPS |
 | `tdestroy.sh` | 프로젝트 루트 | CNPG S3 base/WAL 백업 → EBS 온디맨드 백업/검증 → Kubernetes/LB/Persistent Storage Cleanup → DEV Terraform 삭제 |
 | `scripts/apply-infra.sh` | 내부 | Terraform Apply와 CNPG PostgreSQL 이미지 준비. 직접 실행하지 않음 |
 | `scripts/backup-cnpg-before-destroy.sh` | 내부 | CNPG PVC/PV/EBS 식별 → Backup Job 생성/대기 → schema v2 Manifest 생성 |
 | `scripts/cnpg-s3-backup.sh` | 내부 | CNPG base backup 생성 → 새 WAL S3 업로드 확인 → 복원 지점 marker 저장 |
 | `scripts/restore-cnpg-before-gitops.sh` | 내부 | S3 marker 검증 → CNPG 복원 또는 initdb → 새 세대 WAL 경로와 base backup 검증 |
+| `scripts/configure-management-access.sh` | 내부 | Argo CD·Jenkins Internal ALB/Ingress/Target/DNS/TLS/Tailscale route Guard. 직접 실행하지 않음 |
 | `scripts/configure-observability-access.sh` | 내부 | Grafana Public ALB/Host Rule/Target/DNS 및 Prometheus 비공개 Guard. 직접 실행하지 않음 |
 | `scripts/destroy-infra.sh` | 내부 | 보존 대상을 제외한 DEV Terraform 모듈 삭제. 직접 실행하지 않음 |
 | `cleanup-k8s.sh` | 내부 | 이번 Destroy Manifest와 현재 CNPG EBS 재검증 → Argo CD/LB/Persistent Storage 정리 |
@@ -282,6 +285,7 @@ Bootstrap 스택은 담당자가 해당 디렉터리로 직접 이동해서 `ter
 ## 다음 참고 문서
 
 - [docs/architecture.md](docs/architecture.md) — 아키텍처 원칙, Bootstrap ↔ DEV 생명주기 분리, Bootstrap 담당자 최초 실행 절차, AWS 계정 발급 전 작업 원칙
+- [docs/management-domains.md](docs/management-domains.md) — Tailscale 전용 Argo CD·Jenkins Internal ALB, SG, DNS와 자동 복구
 - [docs/management-observability-access.md](docs/management-observability-access.md) — Grafana Public HTTPS와 Prometheus ClusterIP 전용 정책
 - [docs/route53-acm.md](docs/route53-acm.md) — leechs.shop Route53 이전, ACM 및 ALB 연결 단계
 - [docs/alb-https-test.md](docs/alb-https-test.md) — AWS Load Balancer Controller 설치 및 test.leechs.shop HTTPS 통합 검증

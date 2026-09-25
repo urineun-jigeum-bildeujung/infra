@@ -92,6 +92,24 @@ variable "cluster_admin_principal_arns" {
   }
 }
 
+variable "cluster_view_principal_arns" {
+  description = "클러스터 전체의 일반 Kubernetes 리소스를 조회할 IAM User/Role ARN 목록. Secrets와 대부분의 커스텀 리소스는 포함하지 않는다."
+  type        = list(string)
+  default     = []
+}
+
+variable "db_port_forward_principal_arns" {
+  description = "조회 주체 중 database 네임스페이스의 pods/portforward 권한을 추가로 받을 IAM ARN 목록"
+  type        = list(string)
+  default     = []
+}
+
+variable "audit_crd_principal_arns" {
+  description = "조회 주체 중 CNPG, Argo CD, Prometheus/Alertmanager의 지정된 커스텀 리소스를 읽을 IAM ARN 목록"
+  type        = list(string)
+  default     = []
+}
+
 # =============================================================================
 # Managed Node Group
 # =============================================================================

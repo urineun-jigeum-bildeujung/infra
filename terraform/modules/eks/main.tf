@@ -153,6 +153,34 @@ resource "aws_eks_access_policy_association" "cluster_admin" {
   depends_on = [aws_eks_access_entry.cluster_admin]
 }
 
+# 보안 점검용 조회 주체는 관리자 목록과 분리한다. ViewPolicy는 일반 Kubernetes
+# 리소스만 조회하며 Secrets와 대부분의 커스텀 리소스는 별도 권한이 필요하다.
+resource "aws_eks_access_entry" "cluster_view" {
+  for_each = toset(var.cluster_view_principal_arns)
+
+  cluster_name  = aws_eks_cluster.main.name
+  principal_arn = each.value
+  type          = "STANDARD"
+  kubernetes_groups = concat(
+    contains(var.db_port_forward_principal_arns, each.value) ? ["petflow-db-port-forward"] : [],
+    contains(var.audit_crd_principal_arns, each.value) ? ["petflow-k8s-audit-crd"] : [],
+  )
+}
+
+resource "aws_eks_access_policy_association" "cluster_view" {
+  for_each = toset(var.cluster_view_principal_arns)
+
+  cluster_name  = aws_eks_cluster.main.name
+  principal_arn = each.value
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy"
+
+  access_scope {
+    type = "cluster"
+  }
+
+  depends_on = [aws_eks_access_entry.cluster_view]
+}
+
 # =============================================================================
 # EBS CSI Driver IAM Role (Pod Identity 방식)
 # =============================================================================

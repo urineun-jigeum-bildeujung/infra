@@ -58,6 +58,19 @@ eks_cluster_admin_principal_arns = [
   "arn:aws:iam::297165773875:user/ujibil6",
 ]
 
+# 보안 점검용 IAM User: 클러스터 전체의 일반 Kubernetes 리소스 조회만 허용한다.
+eks_cluster_view_principal_arns = [
+  "arn:aws:iam::297165773875:user/security",
+]
+# 위 조회 주체 중 database 네임스페이스의 Pod 포트포워드도 허용할 사용자.
+eks_db_port_forward_principal_arns = [
+  "arn:aws:iam::297165773875:user/security",
+]
+# CNPG/Argo CD/Prometheus 커스텀 리소스의 지정된 조회 권한만 추가한다.
+eks_audit_crd_principal_arns = [
+  "arn:aws:iam::297165773875:user/security",
+]
+
 # Managed Node Group
 # CI/CD와 플랫폼 Workload의 메모리 여유를 위해 m7i-flex.large (2 vCPU / 8 GiB)를 사용한다.
 # 기본 4대를 유지하고 Managed Node Group은 2~5대 범위로 확장한다.

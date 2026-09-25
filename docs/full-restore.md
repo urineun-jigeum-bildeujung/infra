@@ -1,6 +1,6 @@
 # DEV 전체 Apply Runbook
 
-`tapply.sh` 한 번으로 Terraform, EKS, Jenkins CI 준비, GitOps, Public Web ALB, 공개 Grafana와 비공개 Prometheus 정책, Route53 Alias와 HTTPS까지 생성·검증한다. 신규 생성과 재적용 모두 같은 명령을 사용한다.
+`tapply.sh` 한 번으로 Terraform, EKS, Jenkins CI 준비, GitOps, Public Web ALB, 공개 Grafana·비공개 Prometheus 정책, Tailscale 전용 Argo CD·Jenkins Internal ALB, Route53 Alias와 HTTPS까지 생성·검증한다. 신규 생성과 재적용 모두 같은 명령을 사용한다.
 
 ## 사전 요구사항
 
@@ -42,6 +42,7 @@ Route53 적용은 기본값이다. 장애 분석 중 DNS 변경만 의도적으�
 ```bash
 APPLY_WEB_DNS=false AWS_PROFILE=ujibil2 ./tapply.sh
 APPLY_OBSERVABILITY_DNS=false AWS_PROFILE=ujibil2 ./tapply.sh
+# Management와 Observability는 같은 State이므로 둘 중 하나만 다르게 설정할 수 없다.
 ```
 
 ## 실행 순서
@@ -54,10 +55,11 @@ APPLY_OBSERVABILITY_DNS=false AWS_PROFILE=ujibil2 ./tapply.sh
 6. Jenkins Application, StatefulSet Ready와 준비된 Service Endpoint를 기다린다.
 7. Controller와 cert-manager Application, Deployment, Certificate, Webhook Endpoint를 기다린다.
 8. Web Ingress와 `petflow-dev-public` Public ALB를 기다리고 Target Health를 검증한다.
-9. `grafana-public`이 기존 `petflow-dev-public` ALB에 합류할 때까지 기다린다.
-10. Public ALB/VPC/태그/ACM/Grafana Host Rule과 Grafana Target Health를 검증한다.
-11. 관리·Web DNS Alias와 공개 HTTPS를 검증한다.
-12. Web 복구 상태와 Jenkins CI 준비 상태를 구분해 최종 출력한다.
+9. Argo CD·Jenkins Ingress가 `petflow-dev-management` Internal ALB 하나를 공유할 때까지 기다린다.
+10. Management ALB/SG/ACM/두 Host Rule, backend protocol과 Target Health를 검증하고 두 Alias를 적용한다.
+11. `grafana-public`의 Public ALB/VPC/태그/ACM/Target Health와 Prometheus 비공개 정책을 검증한다.
+12. Web DNS Alias와 공개 HTTPS를 검증한다.
+13. Web·Grafana·Argo CD·Jenkins와 Jenkins CI 준비 상태를 구분해 최종 출력한다.
 
 ## GitOps Checkout Guard
 
@@ -93,8 +95,15 @@ Observability:
 - Prometheus Ingress와 Route53 레코드는 없어야 한다.
 - 저장 Plan은 Grafana create/update와 기존 Prometheus delete만 허용한다.
 
+Management:
+
+- 두 Ingress는 동일한 `petflow-dev-management` Internal ALB와 Terraform frontend SG를 사용한다.
+- Argo CD Target은 HTTPS `/healthz`, Jenkins Target은 HTTP `/login`이며 모두 `healthy`다.
+- 두 Alias는 같은 Internal ALB를 가리키고 VMware 경로는 `tailscale0`이며 TLS 검증을 통과한다.
+- 저장 Plan은 Grafana·Argo CD·Jenkins Alias create/update와 기존 Prometheus delete만 허용한다.
+
 위 허용 목록 밖의 삭제·교체 또는 다른 리소스 변경이 포함되면 자동 Apply하지 않고 중단한다. 자세한
-기준은 [management-observability-access.md](management-observability-access.md)를 참고한다.
+기준은 [management-observability-access.md](management-observability-access.md)와 [management-domains.md](management-domains.md)를 참고한다.
 
 ## 관리 경계
 
@@ -104,7 +113,7 @@ Observability:
 | AWS Load Balancer Controller Helm Release/ServiceAccount/CRD/Webhook | GitOps/Argo CD |
 | Ingress, Service, Deployment | GitOps/Argo CD |
 | `leechs.shop` Route53 Alias | `dev-web-dns` Terraform |
-| Grafana Alias·Prometheus 기존 Alias 제거 | `dev-management-dns` Terraform |
+| Grafana·Argo CD·Jenkins Alias 및 Prometheus 기존 Alias 제거 | `dev-management-dns` Terraform |
 
 Controller Helm Release를 GitOps와 Infra가 동시에 관리하지 않는다. 정상 Apply 경로는
 GitOps의 `platform/10-aws-load-balancer-controller/application.yaml`이며, `tapply.sh`는

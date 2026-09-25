@@ -46,7 +46,7 @@ variable "prometheus_hostname" {
 }
 
 variable "management_alb_name" {
-  description = "이전 tfvars 호환용 Management ALB 이름(신규 조회 안 함)"
+  description = "Argo CD와 Jenkins가 공유하는 Management Internal ALB 이름"
   type        = string
   default     = "petflow-dev-management"
 
@@ -74,7 +74,7 @@ variable "public_alb_ingress_stack" {
 }
 
 variable "alb_ingress_stack" {
-  description = "이전 tfvars 호환용 Management ALB stack 값(신규 조회 안 함)"
+  description = "Management ALB의 ingress.k8s.aws/stack 태그 기대값"
   type        = string
   default     = "petflow-dev-management"
 }

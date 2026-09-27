@@ -676,6 +676,13 @@ log "[12/14] Grafana Public ALB Target·Route53·HTTPS 및 Prometheus 비공개 
 APPLY_OBSERVABILITY_DNS="${APPLY_OBSERVABILITY_DNS}" \
   PETFLOW_INTERNAL_ORCHESTRATOR=true \
   "${SCRIPT_DIR}/scripts/configure-observability-access.sh"
+if ! (
+  cd "${GITOPS_DIR}"
+  task bootstrap:grafana-audit-user KUBE_CONTEXT="${KUBECONFIG_CONTEXT}"
+); then
+  fail "Grafana security-audit 계정 bootstrap에 실패했습니다. AWS Secrets Manager 권한과 Grafana 관리자 Secret을 확인한 뒤 tapply.sh를 재실행하세요."
+fi
+log "Grafana security-audit 계정 bootstrap 완료 (비밀번호는 AWS Secrets Manager에 보존)"
 
 log "[13/14] Web Route53 Alias와 공개 HTTPS"
 if [[ "${APPLY_WEB_DNS}" == true ]]; then

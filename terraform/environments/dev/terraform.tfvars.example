@@ -66,6 +66,10 @@ eks_cluster_view_principal_arns = [
 eks_db_port_forward_principal_arns = [
   "arn:aws:iam::297165773875:user/security",
 ]
+# Jenkins UI/API 점검용 포트포워드. Jenkins 내부 권한은 별도 계정으로 제한한다.
+eks_jenkins_port_forward_principal_arns = [
+  "arn:aws:iam::297165773875:user/security",
+]
 # CNPG/Argo CD/Prometheus 커스텀 리소스의 지정된 조회 권한만 추가한다.
 eks_audit_crd_principal_arns = [
   "arn:aws:iam::297165773875:user/security",

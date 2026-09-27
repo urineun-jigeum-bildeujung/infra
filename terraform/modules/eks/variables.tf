@@ -104,6 +104,12 @@ variable "db_port_forward_principal_arns" {
   default     = []
 }
 
+variable "jenkins_port_forward_principal_arns" {
+  description = "조회 주체 중 jenkins 네임스페이스의 pods/portforward 권한을 추가로 받을 IAM ARN 목록"
+  type        = list(string)
+  default     = []
+}
+
 variable "audit_crd_principal_arns" {
   description = "조회 주체 중 CNPG, Argo CD, Prometheus/Alertmanager의 지정된 커스텀 리소스를 읽을 IAM ARN 목록"
   type        = list(string)

@@ -116,6 +116,7 @@ module "eks" {
   cluster_view_principal_arns         = var.eks_cluster_view_principal_arns
   db_port_forward_principal_arns      = var.eks_db_port_forward_principal_arns
   jenkins_port_forward_principal_arns = var.eks_jenkins_port_forward_principal_arns
+  redis_port_forward_principal_arns   = var.eks_redis_port_forward_principal_arns
   audit_crd_principal_arns            = var.eks_audit_crd_principal_arns
 
   # Node Group

@@ -164,6 +164,7 @@ resource "aws_eks_access_entry" "cluster_view" {
   kubernetes_groups = concat(
     contains(var.db_port_forward_principal_arns, each.value) ? ["petflow-db-port-forward"] : [],
     contains(var.jenkins_port_forward_principal_arns, each.value) ? ["petflow-jenkins-port-forward"] : [],
+    contains(var.redis_port_forward_principal_arns, each.value) ? ["petflow-redis-port-forward"] : [],
     contains(var.audit_crd_principal_arns, each.value) ? ["petflow-k8s-audit-crd"] : [],
   )
 }

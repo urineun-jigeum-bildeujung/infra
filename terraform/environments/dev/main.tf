@@ -33,6 +33,7 @@ locals {
     "postgresql-pg-bigm",
     "web",
     "nutrition",
+    "recommendation",
   ]))
 }
 

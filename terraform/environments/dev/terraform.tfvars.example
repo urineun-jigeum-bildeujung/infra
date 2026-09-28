@@ -132,6 +132,7 @@ cloudtrail_cloudwatch_retention_days = 30
 ecr_repository_names = [
   "api-gateway",
   "auth-service",
+  "jenkins-controller",
   "member-service",
   "order-service",
   "payment-service",

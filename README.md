@@ -256,7 +256,7 @@ State locking (`use_lockfile = true`) 덕분에 팀원 A 가 apply 중이면 B �
 |---|---|---|
 | `tinit.sh` | 프로젝트 루트 | 필수 도구 / 인증 / `backend.hcl` 확인 후 `terraform init -backend-config=backend.hcl` |
 | `tplan.sh` | 프로젝트 루트 | AWS 인증 확인 → `terraform fmt` + `validate` + `plan` |
-| `tapply.sh` | 프로젝트 루트 | Terraform → CNPG 복원/initdb → GitOps → Public Web·Grafana 및 Private Argo CD·Jenkins ALB Target → Route53 → HTTPS |
+| `tapply.sh` | 프로젝트 루트 | Terraform → CNPG 복원/initdb → GitOps → Jenkins bounded Ready Guard/안전 진단 → Public Web·Grafana 및 Private Argo CD·Jenkins ALB Target → Route53 → HTTPS |
 | `tdestroy.sh` | 프로젝트 루트 | CNPG S3 base/WAL 백업 → EBS 온디맨드 백업/검증 → Kubernetes/LB/Persistent Storage Cleanup → DEV Terraform 삭제 |
 | `scripts/apply-infra.sh` | 내부 | Terraform Apply와 CNPG PostgreSQL 이미지 준비. 직접 실행하지 않음 |
 | `scripts/backup-cnpg-before-destroy.sh` | 내부 | CNPG PVC/PV/EBS 식별 → Backup Job 생성/대기 → schema v2 Manifest 생성 |

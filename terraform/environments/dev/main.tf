@@ -30,6 +30,7 @@ locals {
   # 실제 PostgreSQL 이미지는 tapply.sh가 apply 후 push한다.
   dev_ecr_repository_names = distinct(concat(var.ecr_repository_names, [
     "api-gateway",
+    "jenkins-controller",
     "postgresql-pg-bigm",
     "web",
     "nutrition",

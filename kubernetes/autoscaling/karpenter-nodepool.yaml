@@ -1,0 +1,130 @@
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: default
+spec:
+  amiFamily: AL2023
+  amiSelectorTerms:
+    - alias: al2023@latest
+  # TODO 확인 필요: 팀 modules/platform-iam의 aws_iam_role.karpenter_node 이름과
+  # 정확히 일치해야 합니다. 코드 기준 패턴은 "${project_name}-${environment}-karpenter-node"
+  # 입니다. 아래 값은 project_name=petflow, environment=dev로 추정한 것이니
+  # 팀원에게 실제 tfvars 값을 확인한 뒤 확정하세요.
+  role: "petflow-dev-karpenter-node"
+  subnetSelectorTerms:
+    # TODO 확인 필요: 팀 modules/network가 private subnet에 붙이는 태그값과 일치해야 합니다.
+    # 코드 기준 패턴은 "${project_name}-eks" 입니다.
+    - tags:
+        karpenter.sh/discovery: "petflow-eks"
+  securityGroupSelectorTerms:
+    # TODO 확인 필요: 팀 modules/eks가 클러스터 보안그룹에 붙이는 태그값과 일치해야 합니다.
+    - tags:
+        karpenter.sh/discovery: "petflow-eks"
+  tags:
+    Project: petflow-autoscaling
+    ManagedBy: karpenter
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      ebs:
+        volumeSize: 50Gi
+        volumeType: gp3
+        deleteOnTermination: true
+
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: spot-cost-optimized
+spec:
+  template:
+    metadata:
+      labels:
+        node-role: workload
+        capacity: spot
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: default
+
+      requirements:
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["spot"]
+
+        - key: karpenter.k8s.aws/instance-family
+          operator: In
+          values: ["c7i-flex", "c7i", "m7i-flex", "m7i"]
+
+        - key: karpenter.k8s.aws/instance-size
+          operator: In
+          values: ["large", "xlarge"]
+
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+
+        - key: kubernetes.io/os
+          operator: In
+          values: ["linux"]
+
+      expireAfter: 720h
+
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 10m
+    budgets:
+      - nodes: "20%"
+      - nodes: "0"
+        schedule: "0 0 * * mon-fri"
+        duration: 9h
+
+  limits:
+    cpu: "1000"
+    memory: 1000Gi
+
+  weight: 100
+
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: on-demand-fallback
+spec:
+  template:
+    metadata:
+      labels:
+        node-role: workload
+        capacity: on-demand
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: default
+      requirements:
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+        - key: karpenter.k8s.aws/instance-family
+          operator: In
+          values: ["c7i-flex", "c7i", "m7i"]
+        - key: karpenter.k8s.aws/instance-size
+          operator: In
+          values: ["large", "xlarge"]
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+      taints:
+        - key: node-type
+          value: on-demand
+          effect: NoSchedule
+      expireAfter: 720h
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 10m
+    budgets:
+      - nodes: "20%"
+  limits:
+    cpu: "200"
+    memory: 200Gi
+  weight: 1

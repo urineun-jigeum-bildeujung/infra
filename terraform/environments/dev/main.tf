@@ -30,8 +30,11 @@ locals {
   # 실제 PostgreSQL 이미지는 tapply.sh가 apply 후 push한다.
   dev_ecr_repository_names = distinct(concat(var.ecr_repository_names, [
     "api-gateway",
+    "jenkins-controller",
     "postgresql-pg-bigm",
     "web",
+    "nutrition",
+    "recommendation",
   ]))
 }
 
@@ -111,7 +114,12 @@ module "eks" {
   public_access_cidrs     = var.eks_public_access_cidrs
 
   # Access
-  cluster_admin_principal_arns = local.eks_cluster_admin_principal_arns
+  cluster_admin_principal_arns        = local.eks_cluster_admin_principal_arns
+  cluster_view_principal_arns         = var.eks_cluster_view_principal_arns
+  db_port_forward_principal_arns      = var.eks_db_port_forward_principal_arns
+  jenkins_port_forward_principal_arns = var.eks_jenkins_port_forward_principal_arns
+  redis_port_forward_principal_arns   = var.eks_redis_port_forward_principal_arns
+  audit_crd_principal_arns            = var.eks_audit_crd_principal_arns
 
   # Node Group
   node_instance_types = var.eks_node_instance_types

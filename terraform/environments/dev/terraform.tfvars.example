@@ -58,13 +58,34 @@ eks_cluster_admin_principal_arns = [
   "arn:aws:iam::297165773875:user/ujibil6",
 ]
 
+# 보안 점검용 IAM User: 클러스터 전체의 일반 Kubernetes 리소스 조회만 허용한다.
+eks_cluster_view_principal_arns = [
+  "arn:aws:iam::297165773875:user/security",
+]
+# 위 조회 주체 중 database 네임스페이스의 Pod 포트포워드도 허용할 사용자.
+eks_db_port_forward_principal_arns = [
+  "arn:aws:iam::297165773875:user/security",
+]
+# Jenkins UI/API 점검용 포트포워드. Jenkins 내부 권한은 별도 계정으로 제한한다.
+eks_jenkins_port_forward_principal_arns = [
+  "arn:aws:iam::297165773875:user/security",
+]
+# Redis 감사 계정 접속용 redis-master-0 Pod 포트포워드.
+eks_redis_port_forward_principal_arns = [
+  "arn:aws:iam::297165773875:user/security",
+]
+# CNPG/Argo CD/Prometheus 커스텀 리소스의 지정된 조회 권한만 추가한다.
+eks_audit_crd_principal_arns = [
+  "arn:aws:iam::297165773875:user/security",
+]
+
 # Managed Node Group
 # CI/CD와 플랫폼 Workload의 메모리 여유를 위해 m7i-flex.large (2 vCPU / 8 GiB)를 사용한다.
-# 기본 3대를 유지하고 Managed Node Group은 2~5대 범위로 확장한다.
+# 기본 4대를 유지하고 Managed Node Group은 2~5대 범위로 확장한다.
 eks_node_instance_types = ["m7i-flex.large"]
 eks_node_ami_type       = "AL2023_x86_64_STANDARD"
 eks_node_disk_size      = 50 # Jenkins / Kaniko / Trivy 및 플랫폼 이미지 저장 공간
-eks_node_desired_size   = 3
+eks_node_desired_size   = 4
 eks_node_min_size       = 2
 eks_node_max_size       = 5
 
@@ -111,6 +132,7 @@ cloudtrail_cloudwatch_retention_days = 30
 ecr_repository_names = [
   "api-gateway",
   "auth-service",
+  "jenkins-controller",
   "member-service",
   "order-service",
   "payment-service",

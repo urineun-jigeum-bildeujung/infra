@@ -51,16 +51,19 @@ primary_pod="$("${K[@]}" get pods \
   "SELECT pg_logical_emit_message(false, 'petflow-tdestroy', 'ensure pre-destroy WAL archive'); SELECT pg_switch_wal();" \
   >/dev/null
 while (( $(date +%s) < deadline )); do
-  base_count="$(aws s3api list-objects-v2 --bucket "${BUCKET}" \
-    --prefix "${prefix}/${CLUSTER}/base/" --max-keys 1 --query KeyCount --output text)"
-  newest_wal="$(aws s3api list-objects-v2 --bucket "${BUCKET}" \
-    --prefix "${prefix}/${CLUSTER}/wals/" --output json \
-    | jq -r '[.Contents[]?.LastModified] | max // empty')"
-  if [[ "${base_count}" == 1 && -n "${newest_wal}" ]] \
+  # aws-cli 2.31.35 + Python 3.14 조합에서 `s3api list-objects-v2`의 help 텍스트
+  # 렌더링이 깨져 명령 자체가 "badly formed help string"으로 실패한다(2026-09-28
+  # 실제 재현·격리 확인 — 다른 s3api 하위 명령과 `aws s3 ls`는 영향 없음). 같은
+  # 정보를 얻을 수 있는 `aws s3 ls`로 대체한다.
+  base_count="$(aws s3 ls "s3://${BUCKET}/${prefix}/${CLUSTER}/base/" --recursive 2>/dev/null \
+    | wc -l || true)"
+  newest_wal="$(aws s3 ls "s3://${BUCKET}/${prefix}/${CLUSTER}/wals/" --recursive 2>/dev/null \
+    | awk '{print $1" "$2}' | sort | tail -1 || true)"
+  if [[ "${base_count:-0}" -ge 1 && -n "${newest_wal}" ]] \
     && (( $(date -d "${newest_wal}" +%s) >= backup_started_epoch )); then break; fi
   sleep 15
 done
-[[ "${base_count:-0}" == 1 && -n "${newest_wal:-}" ]] \
+[[ "${base_count:-0}" -ge 1 && -n "${newest_wal:-}" ]] \
   && (( $(date -d "${newest_wal}" +%s) >= backup_started_epoch )) || {
   echo "S3 base/WAL 검증 실패: base=${base_count:-0}, newestWal=${newest_wal:-none}" >&2; exit 1;
 }

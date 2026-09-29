@@ -22,8 +22,8 @@
 | EKS | `petflow-eks`, Kubernetes 1.35 |
 | EKS Endpoint | Public OFF, Private ON |
 | Managed Node Group | `petflow-node-group`, `m7i-flex.large` |
-| Node Scaling | min 2 / desired 3 / max 5 |
-| 기본 Capacity | 6 vCPU / 24 GiB |
+| Node Scaling | min 2 / desired 4 / max 5 |
+| 기본 Capacity | 8 vCPU / 32 GiB |
 | 최대 Capacity | 10 vCPU / 40 GiB |
 
 ```text
@@ -37,6 +37,8 @@ Windows 관리자 PC
 Router는 Public IP와 inbound Security Group 규칙 없이 Private Subnet에 배치하며
 SSM으로 관리한다. EC2/Private/Tailscale IP는 재생성 시 바뀌므로
 [Terraform Output](terraform-outputs.md)과 `tailscale status`로 조회한다.
+기본 EC2 수량은 EKS Worker Node 4대와 Tailscale Router 1대로 총 5대이며,
+Router는 Managed Node Group 수량에 포함하지 않는다.
 
 Redis와 Kafka는 AWS 관리형 서비스가 아니라 EKS 내부 GitOps Workload다.
 

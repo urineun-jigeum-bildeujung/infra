@@ -9,7 +9,7 @@ run "repositories_disable_force_delete" {
 
   variables {
     project_name     = "petflow"
-    repository_names = ["auth-service", "web"]
+    repository_names = ["auth-service", "jenkins-controller", "web"]
   }
 
   assert {
@@ -18,5 +18,10 @@ run "repositories_disable_force_delete" {
       repository.force_delete == false
     ])
     error_message = "ECR Repository는 이미지 강제 삭제를 허용하면 안 됩니다."
+  }
+
+  assert {
+    condition     = contains(keys(aws_ecr_repository.services), "jenkins-controller")
+    error_message = "Jenkins controller ECR Repository가 보존 모듈에서 생성돼야 합니다."
   }
 }

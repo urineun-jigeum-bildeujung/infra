@@ -13,7 +13,6 @@ KUBECONFIG_CONTEXT="petflow-dev"
 OBSERVABILITY_NAMESPACE="observability"
 GRAFANA_INGRESS_NAME="grafana-public"
 PUBLIC_ALB_NAME="petflow-dev-public"
-LEGACY_MANAGEMENT_ALB_NAME="petflow-dev-management"
 EXPECTED_INGRESS_STACK="petflow-public"
 EXPECTED_EKS_CLUSTER_NAME="petflow-eks"
 GRAFANA_HOSTNAME="grafana.leechs.shop"
@@ -151,7 +150,6 @@ wait_for_grafana_public_alb() {
   local ingress_alb_name
   local prometheus_ingresses
   local alb_arn
-  local legacy_alb_arn
   local alb_dns
   local alb_state
   local alb_scheme
@@ -180,9 +178,6 @@ wait_for_grafana_public_alb() {
 
     alb_arn="$(aws elbv2 describe-load-balancers --region "${aws_region}" \
       --names "${PUBLIC_ALB_NAME}" --query 'LoadBalancers[0].LoadBalancerArn' \
-      --output text 2>/dev/null || true)"
-    legacy_alb_arn="$(aws elbv2 describe-load-balancers --region "${aws_region}" \
-      --names "${LEGACY_MANAGEMENT_ALB_NAME}" --query 'LoadBalancers[0].LoadBalancerArn' \
       --output text 2>/dev/null || true)"
     alb_dns="$(aws elbv2 describe-load-balancers --region "${aws_region}" \
       --names "${PUBLIC_ALB_NAME}" --query 'LoadBalancers[0].DNSName' \
@@ -214,7 +209,6 @@ wait_for_grafana_public_alb() {
       && "${ingress_scheme}" == "internet-facing" \
       && "${ingress_alb_name}" == "${PUBLIC_ALB_NAME}" \
       && "${prometheus_ingresses}" == "0" \
-      && ( -z "${legacy_alb_arn}" || "${legacy_alb_arn}" == "None" ) \
       && "${alb_state}" == "active" && "${alb_scheme}" == "internet-facing" \
       && "${alb_vpc_id}" == "${expected_vpc_id}" \
       && "${stack_tag}" == "${EXPECTED_INGRESS_STACK}" \
@@ -228,7 +222,7 @@ wait_for_grafana_public_alb() {
       return
     fi
 
-    log "Grafana Public ALB 대기 중: ingress=${ingress_address:-empty}, group=${ingress_group:-empty}, scheme=${ingress_scheme:-empty}/${alb_scheme:-empty}, explicitAlbName=${ingress_alb_name:-none}, prometheusIngress=${prometheus_ingresses:-unknown}, legacyAlb=${legacy_alb_arn:+present}, alb=${alb_dns:-not-found}, state=${alb_state:-not-found}, targetGroup=${target_group_arn:-not-found}"
+    log "Grafana Public ALB 대기 중: ingress=${ingress_address:-empty}, group=${ingress_group:-empty}, scheme=${ingress_scheme:-empty}/${alb_scheme:-empty}, explicitAlbName=${ingress_alb_name:-none}, prometheusIngress=${prometheus_ingresses:-unknown}, alb=${alb_dns:-not-found}, state=${alb_state:-not-found}, targetGroup=${target_group_arn:-not-found}"
     sleep 10
   done
 
@@ -288,7 +282,9 @@ apply_observability_dns() {
     | jq '[.resource_changes[]
       | select(.mode == "managed" and (.change.actions != ["no-op"]))
       | select(
-          ((.address == "aws_route53_record.grafana")
+          ((.address == "aws_route53_record.grafana"
+              or .address == "aws_route53_record.argocd"
+              or .address == "aws_route53_record.jenkins")
             and ((.change.actions == ["create"]) or (.change.actions == ["update"])))
           or ((.address == "aws_route53_record.prometheus")
             and (.change.actions == ["delete"]))

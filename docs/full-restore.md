@@ -1,6 +1,6 @@
 # DEV 전체 Apply Runbook
 
-`tapply.sh` 한 번으로 Terraform, EKS, Jenkins CI 준비, GitOps, Public Web ALB, 공개 Grafana와 비공개 Prometheus 정책, Route53 Alias와 HTTPS까지 생성·검증한다. 신규 생성과 재적용 모두 같은 명령을 사용한다.
+`tapply.sh` 한 번으로 Terraform, EKS, Jenkins CI 준비, GitOps, Public Web ALB, 공개 Grafana·비공개 Prometheus 정책, Tailscale 전용 Argo CD·Jenkins Internal ALB, Route53 Alias와 HTTPS까지 생성·검증한다. 신규 생성과 재적용 모두 같은 명령을 사용한다.
 
 ## 사전 요구사항
 
@@ -42,6 +42,7 @@ Route53 적용은 기본값이다. 장애 분석 중 DNS 변경만 의도적으�
 ```bash
 APPLY_WEB_DNS=false AWS_PROFILE=ujibil2 ./tapply.sh
 APPLY_OBSERVABILITY_DNS=false AWS_PROFILE=ujibil2 ./tapply.sh
+# Management와 Observability는 같은 State이므로 둘 중 하나만 다르게 설정할 수 없다.
 ```
 
 ## 실행 순서
@@ -54,10 +55,11 @@ APPLY_OBSERVABILITY_DNS=false AWS_PROFILE=ujibil2 ./tapply.sh
 6. Jenkins Application, StatefulSet Ready와 준비된 Service Endpoint를 기다린다.
 7. Controller와 cert-manager Application, Deployment, Certificate, Webhook Endpoint를 기다린다.
 8. Web Ingress와 `petflow-dev-public` Public ALB를 기다리고 Target Health를 검증한다.
-9. `grafana-public`이 기존 `petflow-dev-public` ALB에 합류할 때까지 기다린다.
-10. Public ALB/VPC/태그/ACM/Grafana Host Rule과 Grafana Target Health를 검증한다.
-11. 관리·Web DNS Alias와 공개 HTTPS를 검증한다.
-12. Web 복구 상태와 Jenkins CI 준비 상태를 구분해 최종 출력한다.
+9. Argo CD·Jenkins Ingress가 `petflow-dev-management` Internal ALB 하나를 공유할 때까지 기다린다.
+10. Management ALB/SG/ACM/두 Host Rule, backend protocol과 Target Health를 검증하고 두 Alias를 적용한다.
+11. `grafana-public`의 Public ALB/VPC/태그/ACM/Target Health와 Prometheus 비공개 정책을 검증한다.
+12. Web DNS Alias와 공개 HTTPS를 검증한다.
+13. Web·Grafana·Argo CD·Jenkins와 Jenkins CI 준비 상태를 구분해 최종 출력한다.
 
 ## GitOps Checkout Guard
 
@@ -93,8 +95,15 @@ Observability:
 - Prometheus Ingress와 Route53 레코드는 없어야 한다.
 - 저장 Plan은 Grafana create/update와 기존 Prometheus delete만 허용한다.
 
+Management:
+
+- 두 Ingress는 동일한 `petflow-dev-management` Internal ALB와 Terraform frontend SG를 사용한다.
+- Argo CD Target은 HTTPS `/healthz`, Jenkins Target은 HTTP `/login`이며 모두 `healthy`다.
+- 두 Alias는 같은 Internal ALB를 가리키고 VMware 경로는 `tailscale0`이며 TLS 검증을 통과한다.
+- 저장 Plan은 Grafana·Argo CD·Jenkins Alias create/update와 기존 Prometheus delete만 허용한다.
+
 위 허용 목록 밖의 삭제·교체 또는 다른 리소스 변경이 포함되면 자동 Apply하지 않고 중단한다. 자세한
-기준은 [management-observability-access.md](management-observability-access.md)를 참고한다.
+기준은 [management-observability-access.md](management-observability-access.md)와 [management-domains.md](management-domains.md)를 참고한다.
 
 ## 관리 경계
 
@@ -104,7 +113,7 @@ Observability:
 | AWS Load Balancer Controller Helm Release/ServiceAccount/CRD/Webhook | GitOps/Argo CD |
 | Ingress, Service, Deployment | GitOps/Argo CD |
 | `leechs.shop` Route53 Alias | `dev-web-dns` Terraform |
-| Grafana Alias·Prometheus 기존 Alias 제거 | `dev-management-dns` Terraform |
+| Grafana·Argo CD·Jenkins Alias 및 Prometheus 기존 Alias 제거 | `dev-management-dns` Terraform |
 
 Controller Helm Release를 GitOps와 Infra가 동시에 관리하지 않는다. 정상 Apply 경로는
 GitOps의 `platform/10-aws-load-balancer-controller/application.yaml`이며, `tapply.sh`는
@@ -120,6 +129,12 @@ AWS_PROFILE=ujibil2 \
 
 `helm uninstall aws-load-balancer-controller -n kube-system`은 실제 Controller 리소스를 삭제하므로 인계 과정에서 실행하지 않는다.
 
+## Jenkins 기동 Guard와 진단
+
+Jenkins Controller는 GitOps가 관리하는 플러그인 내장 ECR image digest를 사용한다. Infra는 `petflow/jenkins-controller` Repository를 보존 ECR 목록에 포함하므로 DEV `tdestroy.sh` 이후에도 이미지를 유지한다. 새 PVC 기동 시 Helm `controller.installPlugins=false`가 적용되어 init container가 외부 plugin mirror에서 플러그인을 다시 받지 않아야 한다.
+
+`tapply.sh`는 기본 900초 동안 Jenkins Application `Synced/Healthy`, StatefulSet Ready와 준비된 Endpoint를 기다린다. `JENKINS_READY_TIMEOUT_SECONDS`, `JENKINS_READY_POLL_INTERVAL_SECONDS`, `JENKINS_DIAGNOSTIC_LOG_TAIL_LINES`는 양의 정수로만 재정의할 수 있다. 제한 시간을 넘기면 Pod/init 상태·종료 코드·재시작 횟수·PVC·Event와 필터링된 현재/이전 init 로그를 출력하고 실패 종료한다. 원인은 `PLUGIN_DOWNLOAD_NETWORK`, `PLUGIN_DOWNLOAD_HTTP`, `PLUGIN_DOWNLOAD`, `IMAGE_PULL`, `PVC_OR_VOLUME`, `SCHEDULING`, `JCASC`, `UNKNOWN`으로 구분한다. Secret 원문과 전체 환경 설정은 출력하지 않으며 Pod 자동 삭제나 무한 재시도도 하지 않는다. 원인을 처리한 뒤 동일한 `./tapply.sh`를 재실행하면 완료된 단계는 멱등하게 유지된다.
+
 ## 장애 확인
 
 | 증상 | 확인 |
@@ -128,7 +143,7 @@ AWS_PROFILE=ujibil2 \
 | EKS `/readyz` 실패 | Tailscale Route, 현재 kubeconfig Endpoint |
 | Worker Ready 실패 | Node Group Health, EC2 Status, CNI Event |
 | Jenkins Secret 준비 실패 | `petflow-dev` context, 필수 키, `gh auth status`, `sever` 읽기·`gitops-value` 쓰기 권한 |
-| Jenkins Ready 실패 | Jenkins Application, StatefulSet/Pod Event, Service EndpointSlice |
+| Jenkins Ready 실패 | 출력된 원인 분류, init 종료 코드·현재/이전 로그, PVC, Scheduling/ImagePull/JCasC Event, Service EndpointSlice |
 | Controller GitOps Sync 실패 | Argo CD Application, Pod Identity Association, Deployment log |
 | ALB 미생성 | IngressClass/Annotation, Subnet Tag, Controller IAM |
 | Target unhealthy | Web Pod/Service/Endpoint, Health Check Path |
@@ -143,7 +158,8 @@ AWS_PROFILE=ujibil2 \
 - Worker Node가 desired 수만큼 `Ready`
 - Controller Deployment/Pod `1/1`
 - Jenkins 두 필수 Secret의 필수 키가 비어 있지 않음
-- Jenkins Application `Synced/Healthy`, StatefulSet `Ready`
+- Jenkins Application `Synced/Healthy`, StatefulSet `Ready`; 실행 imageID가 GitOps의 검증된 ECR digest와 일치
+- Jenkins init `exitCode=0`; 빈 plugin 다운로드 목록이며 외부 mirror 장애 없이 기동
 - Jenkins Service Endpoint가 1개 이상 준비됨 (`periodicFolderTrigger` 2분 설정 유지)
 - Controller Certificate가 모두 `Ready=True`
 - Webhook Service Endpoint가 1개 이상 존재

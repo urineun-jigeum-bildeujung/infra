@@ -5,8 +5,8 @@
 #   - Managed Node Group
 #   - EKS OIDC Provider (향후 IRSA 사용을 위해 미리 생성)
 #   - EKS Access Entry + Access Policy Association (kubectl 접근 권한)
-#   - EKS Add-on 5종:
-#       coredns, kube-proxy, vpc-cni, eks-pod-identity-agent, aws-ebs-csi-driver
+#   - EKS Add-on 6종:
+#       coredns, kube-proxy, vpc-cni, eks-pod-identity-agent, aws-ebs-csi-driver, metrics-server
 #   - EBS CSI Driver 전용 IAM Role (Pod Identity 방식으로 부착)
 #
 # ❌ 이번 브랜치에서 하지 않는 것 (이후 별도 브랜치):
@@ -238,4 +238,12 @@ resource "aws_eks_addon" "ebs_csi_driver" {
     aws_eks_pod_identity_association.ebs_csi,
     aws_eks_addon.pod_identity_agent,
   ]
+}
+
+resource "aws_eks_addon" "metrics_server" {
+  cluster_name = aws_eks_cluster.main.name
+  addon_name   = "metrics-server"
+  # HPA(CPU/메모리)와 kubectl top 이 사용하는 metrics.k8s.io API 를 제공한다.
+  # Deployment 라 실제 스케줄될 노드가 있어야 함
+  depends_on = [aws_eks_node_group.main]
 }

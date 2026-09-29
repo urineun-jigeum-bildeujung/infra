@@ -2,6 +2,12 @@
 # HPA + PDB — CPU/메모리 기준 스케일링 대상 서비스
 # (외부 이벤트 소스 없는 단순 REST API 서비스: auth, member, product, review)
 # order/payment/notification은 Kafka 연동이 있어 KEDA로 관리 (k8s-keda-scaledobject.yaml)
+#
+# 실제 클러스터 확인 결과 반영:
+#  - auth-service          : Argo Rollouts (Rollout)
+#  - member/product/review : Deployment
+#  - 파드 라벨             : app.kubernetes.io/name=generic-service
+#  - 컨트롤러 이름         : generic-service (Rollout은 확인됨, Deployment는 동일 차트라 가정)
 # ============================================================
 
 apiVersion: autoscaling/v2
@@ -11,9 +17,9 @@ metadata:
   namespace: auth-service
 spec:
   scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: auth-service
+    apiVersion: argoproj.io/v1alpha1
+    kind: Rollout
+    name: generic-service
   minReplicas: 2
   maxReplicas: 20
   metrics:
@@ -46,7 +52,7 @@ spec:
   maxUnavailable: 1
   selector:
     matchLabels:
-      app: auth-service
+      app.kubernetes.io/name: generic-service
 
 ---
 apiVersion: autoscaling/v2
@@ -58,7 +64,7 @@ spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: member-service
+    name: generic-service
   minReplicas: 2
   maxReplicas: 20
   metrics:
@@ -87,7 +93,7 @@ spec:
   maxUnavailable: 1
   selector:
     matchLabels:
-      app: member-service
+      app.kubernetes.io/name: generic-service
 
 ---
 apiVersion: autoscaling/v2
@@ -99,7 +105,7 @@ spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: product-service
+    name: generic-service
   minReplicas: 2
   maxReplicas: 20
   metrics:
@@ -128,7 +134,7 @@ spec:
   maxUnavailable: 1
   selector:
     matchLabels:
-      app: product-service
+      app.kubernetes.io/name: generic-service
 
 ---
 apiVersion: autoscaling/v2
@@ -140,7 +146,7 @@ spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: review-service
+    name: generic-service
   minReplicas: 2
   maxReplicas: 20
   metrics:
@@ -169,7 +175,7 @@ spec:
   maxUnavailable: 1
   selector:
     matchLabels:
-      app: review-service
+      app.kubernetes.io/name: generic-service
 
 ---
 # ============================================================

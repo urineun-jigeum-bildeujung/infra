@@ -1,0 +1,283 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: slow-consumer-source
+  namespace: autoscaling-validation
+  labels:
+    app.kubernetes.io/part-of: autoscaling-validation
+data:
+  SlowConsumer.java: |
+    import java.time.Duration;
+    import java.util.Collections;
+    import java.util.Properties;
+    import java.util.concurrent.atomic.AtomicBoolean;
+    import org.apache.kafka.clients.consumer.ConsumerConfig;
+    import org.apache.kafka.clients.consumer.ConsumerRecord;
+    import org.apache.kafka.clients.consumer.ConsumerRecords;
+    import org.apache.kafka.clients.consumer.KafkaConsumer;
+    import org.apache.kafka.common.serialization.StringDeserializer;
+
+    public class SlowConsumer {
+      public static void main(String[] args) throws Exception {
+        Properties props = new Properties();
+        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG,
+            "pet-subscription-kafka-kafka-bootstrap.kafka.svc:9093");
+        props.put(ConsumerConfig.GROUP_ID_CONFIG,
+            "autoscaling-validation-consumer-20260930");
+        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
+        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
+        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
+        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, "1");
+        props.put("security.protocol", "SASL_SSL");
+        props.put("sasl.mechanism", "SCRAM-SHA-512");
+        props.put("sasl.jaas.config",
+            "org.apache.kafka.common.security.scram.ScramLoginModule required username=\"" +
+            System.getenv("KAFKA_USERNAME") + "\" password=\"" +
+            System.getenv("KAFKA_PASSWORD") + "\";");
+        props.put("ssl.truststore.type", "PKCS12");
+        props.put("ssl.truststore.location", "/etc/kafka-ca/ca.p12");
+        props.put("ssl.truststore.password", System.getenv("KAFKA_CA_PASSWORD"));
+
+        AtomicBoolean running = new AtomicBoolean(true);
+        try (KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props)) {
+          Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            running.set(false);
+            consumer.wakeup();
+          }));
+          consumer.subscribe(Collections.singletonList("autoscaling-validation-20260930"));
+          long consumed = 0;
+          while (running.get()) {
+            ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(500));
+            for (ConsumerRecord<String, String> record : records) {
+              Thread.sleep(1000);
+              consumer.commitSync();
+              consumed++;
+              System.out.printf("consumed=%d partition=%d offset=%d%n",
+                  consumed, record.partition(), record.offset());
+            }
+          }
+        }
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: slow-consumer
+  namespace: autoscaling-validation
+  labels:
+    app.kubernetes.io/name: slow-consumer
+    app.kubernetes.io/part-of: autoscaling-validation
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: slow-consumer
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: slow-consumer
+        app.kubernetes.io/part-of: autoscaling-validation
+    spec:
+      terminationGracePeriodSeconds: 15
+      nodeSelector:
+        karpenter.sh/nodepool: on-demand
+      containers:
+        - name: consumer
+          image: quay.io/strimzi/kafka:0.45.2-kafka-3.9.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - java
+            - -cp
+            - /opt/kafka/libs/*
+            - /opt/test/SlowConsumer.java
+          env:
+            - name: KAFKA_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: kafka-credentials
+                  key: username
+            - name: KAFKA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kafka-credentials
+                  key: password
+            - name: KAFKA_CA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kafka-credentials
+                  key: ca.password
+          volumeMounts:
+            - name: source
+              mountPath: /opt/test
+              readOnly: true
+            - name: kafka-ca
+              mountPath: /etc/kafka-ca
+              readOnly: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 192Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: source
+          configMap:
+            name: slow-consumer-source
+        - name: kafka-ca
+          secret:
+            secretName: kafka-credentials
+            items:
+              - key: ca.p12
+                path: ca.p12
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: kafka-auth
+  namespace: autoscaling-validation
+  labels:
+    app.kubernetes.io/part-of: autoscaling-validation
+spec:
+  secretTargetRef:
+    - parameter: username
+      name: kafka-credentials
+      key: username
+    - parameter: password
+      name: kafka-credentials
+      key: password
+    - parameter: ca
+      name: kafka-credentials
+      key: ca.crt
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: slow-consumer
+  namespace: autoscaling-validation
+  labels:
+    app.kubernetes.io/part-of: autoscaling-validation
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: slow-consumer
+  pollingInterval: 5
+  cooldownPeriod: 30
+  minReplicaCount: 1
+  maxReplicaCount: 3
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          policies:
+            - type: Pods
+              value: 1
+              periodSeconds: 15
+        scaleDown:
+          stabilizationWindowSeconds: 30
+          policies:
+            - type: Pods
+              value: 1
+              periodSeconds: 30
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: pet-subscription-kafka-kafka-bootstrap.kafka.svc:9093
+        consumerGroup: autoscaling-validation-consumer-20260930
+        topic: autoscaling-validation-20260930
+        lagThreshold: "10"
+        offsetResetPolicy: earliest
+        sasl: scram_sha512
+        tls: enable
+      authenticationRef:
+        name: kafka-auth
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: produce-300
+  namespace: autoscaling-validation
+  labels:
+    app.kubernetes.io/part-of: autoscaling-validation
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: produce-300
+        app.kubernetes.io/part-of: autoscaling-validation
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        karpenter.sh/nodepool: on-demand
+      containers:
+        - name: producer
+          image: quay.io/strimzi/kafka:0.45.2-kafka-3.9.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - -euc
+            - |
+              printf '%s\n' \
+                'bootstrap.servers=pet-subscription-kafka-kafka-bootstrap.kafka.svc:9093' \
+                'security.protocol=SASL_SSL' \
+                'sasl.mechanism=SCRAM-SHA-512' \
+                "sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username=\"${KAFKA_USERNAME}\" password=\"${KAFKA_PASSWORD}\";" \
+                'ssl.truststore.type=PKCS12' \
+                'ssl.truststore.location=/etc/kafka-ca/ca.p12' \
+                "ssl.truststore.password=${KAFKA_CA_PASSWORD}" \
+                > /tmp/producer.properties
+              exec /opt/kafka/bin/kafka-producer-perf-test.sh \
+                --topic autoscaling-validation-20260930 \
+                --num-records 300 \
+                --record-size 512 \
+                --throughput 10 \
+                --producer.config /tmp/producer.properties
+          env:
+            - name: KAFKA_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: kafka-credentials
+                  key: username
+            - name: KAFKA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kafka-credentials
+                  key: password
+            - name: KAFKA_CA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kafka-credentials
+                  key: ca.password
+          volumeMounts:
+            - name: kafka-ca
+              mountPath: /etc/kafka-ca
+              readOnly: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 192Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: kafka-ca
+          secret:
+            secretName: kafka-credentials
+            items:
+              - key: ca.p12
+                path: ca.p12

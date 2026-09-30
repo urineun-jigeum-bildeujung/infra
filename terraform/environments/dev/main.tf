@@ -77,6 +77,7 @@ module "tailscale" {
   vpc_cidr                      = var.vpc_cidr
   private_subnet_id             = module.network.private_subnet_ids[0]
   instance_type                 = var.tailscale_instance_type
+  ami_id                        = var.tailscale_ami_id
   eks_cluster_security_group_id = module.eks.cluster_security_group_id
   tailscale_oauth_secret_arn    = var.tailscale_oauth_secret_arn
   aws_region                    = var.aws_region

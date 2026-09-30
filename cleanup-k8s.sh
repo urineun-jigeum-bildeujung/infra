@@ -12,6 +12,7 @@ EXPECTED_EKS_CLUSTER_NAME="petflow-eks"
 CNPG_NAMESPACE="database"
 CNPG_BACKUP_VAULT_NAME="petflow-dev-cnpg-ebs"
 CNPG_BACKUP_GUARD="${SCRIPT_DIR}/scripts/cnpg-backup-guard.sh"
+KARPENTER_CLEANUP_LIB="${SCRIPT_DIR}/scripts/lib/karpenter-cleanup.sh"
 DESTROY_RUN_ID="${PETFLOW_DESTROY_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
 CNPG_BACKUP_MANIFEST="${PETFLOW_CNPG_BACKUP_MANIFEST:-}"
 # EBS PVC를 사용하는 모든 DEV Namespace를 추적한다. 이 목록에서 빠진 Namespace는
@@ -23,6 +24,13 @@ KUBECTL=()
 TRACKED_PVS=()
 TRACKED_EBS_VOLUMES=()
 TRACKED_CNPG_EBS_VOLUMES=()
+
+if [[ ! -f "${KARPENTER_CLEANUP_LIB}" ]]; then
+  echo "[cleanup-k8s] Karpenter Cleanup 라이브러리를 찾을 수 없습니다: ${KARPENTER_CLEANUP_LIB}" >&2
+  exit 1
+fi
+# shellcheck source=scripts/lib/karpenter-cleanup.sh
+source "${KARPENTER_CLEANUP_LIB}"
 
 while (($# > 0)); do
   case "$1" in
@@ -528,7 +536,7 @@ if ! aws eks describe-cluster --name "${cluster_name}" --region "${aws_region}" 
   exit 1
 fi
 
-echo "[1/10] Kubernetes API 연결 확인"
+echo "[1/11] Kubernetes API 연결 확인"
 
 TEMP_KUBECONFIG="$(mktemp /tmp/petflow-cleanup-kubeconfig.XXXXXX)"
 aws eks update-kubeconfig --name "${cluster_name}" --region "${aws_region}" --kubeconfig "${TEMP_KUBECONFIG}" >/dev/null
@@ -542,13 +550,13 @@ fi
 
 echo "[cleanup-k8s] Kubernetes API 연결 확인 완료"
 
-echo "[2/10] Database/Redis/Kafka/Jenkins/Observability PVC/PV/EBS 추적"
+echo "[2/11] Database/Redis/Kafka/Jenkins/Observability PVC/PV/EBS 추적"
 track_persistent_storage
 
-echo "[3/10] 이번 Destroy 실행의 CNPG EBS Backup Manifest 재검증"
+echo "[3/11] 이번 Destroy 실행의 CNPG EBS Backup Manifest 재검증"
 verify_cnpg_backup_evidence "pre-kubernetes-cleanup"
 
-echo "[4/10] Argo CD 동기화 중지"
+echo "[4/11] Argo CD 동기화 중지"
 if "${KUBECTL[@]}" get statefulset argocd-application-controller --namespace argocd >/dev/null 2>&1; then
   "${KUBECTL[@]}" scale statefulset argocd-application-controller --namespace argocd --replicas=0 --timeout=60s
   echo "[cleanup-k8s] Argo CD Application Controller 중지 완료"
@@ -556,7 +564,7 @@ else
   echo "[cleanup-k8s] 실행 중인 Argo CD Application Controller가 없습니다."
 fi
 
-echo "[5/10] Ingress 확인 및 삭제"
+echo "[5/11] Ingress 확인 및 삭제"
 ingress_refs="$("${KUBECTL[@]}" get ingresses --all-namespaces -o jsonpath='{range .items[*]}{.metadata.namespace}{"/"}{.metadata.name}{"\n"}{end}')"
 
 if [[ -z "${ingress_refs}" ]]; then
@@ -571,7 +579,7 @@ else
   done <<< "${ingress_refs}"
 fi
 
-echo "[6/10] LoadBalancer Service 확인 및 삭제"
+echo "[6/11] LoadBalancer Service 확인 및 삭제"
 load_balancer_service_refs="$("${KUBECTL[@]}" get services --all-namespaces -o jsonpath='{range .items[?(@.spec.type=="LoadBalancer")]}{.metadata.namespace}{"/"}{.metadata.name}{"\n"}{end}')"
 
 if [[ -z "${load_balancer_service_refs}" ]]; then
@@ -590,17 +598,20 @@ if [[ -n "${vpc_id}" ]]; then
   verify_no_aws_load_balancers "${vpc_id}" "${aws_region}"
 fi
 
-echo "[7/10] CNPG Resource 정리"
+echo "[7/11] CNPG Resource 정리"
 delete_cnpg_resources
 
-echo "[8/10] Persistent Workload 및 PVC 삭제"
+echo "[8/11] Persistent Workload 및 PVC 삭제"
 delete_persistent_workloads
 delete_persistent_volume_claims
 
-echo "[9/10] Persistent PV/EBS 삭제 확인"
+echo "[9/11] Persistent PV/EBS 삭제 확인"
 verify_persistent_storage_cleanup
 
-echo "[10/10] CNPG EBS Backup 사후 Guard"
+echo "[10/11] Karpenter NodeClaim 및 EC2 정상 종료"
+cleanup_karpenter_nodes "${cluster_name}" "${aws_region}"
+
+echo "[11/11] CNPG EBS Backup 사후 Guard"
 verify_cnpg_backup_evidence "post-pvc-cleanup"
 
 echo "======================================"

@@ -32,6 +32,8 @@ single_nat_gateway = true
 # Secret 값이 아닌 Secrets Manager ARN만 설정한다.
 enable_tailscale_router     = true
 tailscale_instance_type     = "t3.micro"
+# 현재 운용 Router의 AMI를 고정한다. 업그레이드는 새 AMI 검증과 교체 plan 검토 후 갱신한다.
+tailscale_ami_id            = "ami-03137ee2d0c5af1fe"
 tailscale_oauth_secret_arn  = "arn:aws:secretsmanager:ap-northeast-2:ACCOUNT_ID:secret:petflow/tailscale/oauth-secret-xxxxxx"
 
 # =============================================================================

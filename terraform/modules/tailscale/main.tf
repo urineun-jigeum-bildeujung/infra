@@ -23,11 +23,6 @@ locals {
   )
 }
 
-# Amazon Linux 2023 최신 x86_64 AMI는 AWS가 관리하는 Public Parameter로 조회한다.
-data "aws_ssm_parameter" "al2023_ami" {
-  name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
-}
-
 data "aws_iam_policy_document" "ec2_trust" {
   statement {
     sid     = "AllowEC2AssumeRole"
@@ -126,7 +121,9 @@ resource "aws_vpc_security_group_ingress_rule" "eks_api_from_router" {
 
 
 resource "aws_instance" "router" {
-  ami                         = data.aws_ssm_parameter.al2023_ami.value
+  # 최신 AMI SSM Parameter를 직접 참조하면 모든 후속 plan에서 예고 없이 Router가
+  # 교체될 수 있다. 명시적으로 검토한 AMI만 상위 환경에서 전달해 교체를 통제한다.
+  ami                         = var.ami_id
   instance_type               = var.instance_type
   subnet_id                   = var.private_subnet_id
   vpc_security_group_ids      = [aws_security_group.router.id]

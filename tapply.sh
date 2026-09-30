@@ -32,9 +32,13 @@ JENKINS_CI_STATUS="not-checked"
 JENKINS_READY_TIMEOUT_SECONDS="${JENKINS_READY_TIMEOUT_SECONDS:-900}"
 JENKINS_READY_POLL_INTERVAL_SECONDS="${JENKINS_READY_POLL_INTERVAL_SECONDS:-10}"
 JENKINS_DIAGNOSTIC_LOG_TAIL_LINES="${JENKINS_DIAGNOSTIC_LOG_TAIL_LINES:-200}"
+AUTOSCALING_READY_TIMEOUT_SECONDS="${AUTOSCALING_READY_TIMEOUT_SECONDS:-900}"
+AUTOSCALING_READY_POLL_INTERVAL_SECONDS="${AUTOSCALING_READY_POLL_INTERVAL_SECONDS:-10}"
 
 # shellcheck source=scripts/lib/jenkins-diagnostics.sh
 source "${SCRIPT_DIR}/scripts/lib/jenkins-diagnostics.sh"
+# shellcheck source=scripts/lib/autoscaling-guards.sh
+source "${SCRIPT_DIR}/scripts/lib/autoscaling-guards.sh"
 
 cleanup() {
   if [[ -n "${TEMP_DNS_PLAN}" && -f "${TEMP_DNS_PLAN}" ]]; then
@@ -146,13 +150,11 @@ wait_for_worker_nodes() {
       --region "${aws_region}" \
       --query 'nodegroup.scalingConfig.desiredSize' \
       --output text 2>/dev/null || true)"
-    ready_count="$(kubectl --context "${KUBECONFIG_CONTEXT}" get nodes -o json 2>/dev/null \
-      | jq '[.items[] | select(any(.status.conditions[]; .type == "Ready" and .status == "True"))] | length' \
-      || printf '0')"
+    ready_count="$(count_ready_managed_nodes "${node_group_name}" || printf '0')"
 
     if [[ "${node_group_status}" == "ACTIVE" && "${desired_count}" =~ ^[1-9][0-9]*$ ]] \
-      && (( ready_count == desired_count )); then
-      log "Worker Node Ready 확인 완료: ${ready_count}/${desired_count}"
+      && (( ready_count >= desired_count )); then
+      log "Managed Node Group Worker Ready 확인 완료: ${ready_count}/${desired_count}"
       return
     fi
 
@@ -633,6 +635,14 @@ print_final_summary() {
   aws eks describe-cluster --name "${cluster_name}" --region "${aws_region}" --query 'cluster.{Name:name,Status:status}' --output table
   kubectl --context "${KUBECONFIG_CONTEXT}" get nodes -o custom-columns='NAME:.metadata.name,READY:.status.conditions[?(@.type=="Ready")].status' --no-headers
   kubectl --context "${KUBECONFIG_CONTEXT}" --namespace argocd get applications.argoproj.io -o custom-columns='NAME:.metadata.name,SYNC:.status.sync.status,HEALTH:.status.health.status' --no-headers
+  kubectl --context "${KUBECONFIG_CONTEXT}" get apiservice v1beta1.metrics.k8s.io v1beta1.external.metrics.k8s.io \
+    -o custom-columns='NAME:.metadata.name,AVAILABLE:.status.conditions[?(@.type=="Available")].status' --no-headers
+  kubectl --context "${KUBECONFIG_CONTEXT}" get hpa -A -o wide
+  kubectl --context "${KUBECONFIG_CONTEXT}" get scaledobject.keda.sh -A \
+    -o custom-columns='NAMESPACE:.metadata.namespace,NAME:.metadata.name,READY:.status.conditions[?(@.type=="Ready")].status,ACTIVE:.status.conditions[?(@.type=="Active")].status'
+  kubectl --context "${KUBECONFIG_CONTEXT}" get ec2nodeclass,nodepool,nodeclaim -A -o wide
+  kubectl --context "${KUBECONFIG_CONTEXT}" get nodes \
+    -o custom-columns='NAME:.metadata.name,MNG:.metadata.labels.eks\.amazonaws\.com/nodegroup,NODEPOOL:.metadata.labels.karpenter\.sh/nodepool,TYPE:.metadata.labels.node\.kubernetes\.io/instance-type,READY:.status.conditions[?(@.type=="Ready")].status'
   aws elbv2 describe-load-balancers --region "${aws_region}" --names "${WEB_ALB_NAME}" --query 'LoadBalancers[0].{Name:LoadBalancerName,DNS:DNSName,State:State.Code}' --output table
   aws elbv2 describe-load-balancers --region "${aws_region}" --names petflow-dev-management --query 'LoadBalancers[0].{Name:LoadBalancerName,DNS:DNSName,Scheme:Scheme,State:State.Code}' --output table
   for target_group_arn in $(aws elbv2 describe-target-groups --region "${aws_region}" --load-balancer-arn "$(aws elbv2 describe-load-balancers --region "${aws_region}" --names "${WEB_ALB_NAME}" --query 'LoadBalancers[0].LoadBalancerArn' --output text)" --query 'TargetGroups[].TargetGroupArn' --output text); do
@@ -677,6 +687,10 @@ esac
   || fail "JENKINS_READY_POLL_INTERVAL_SECONDS는 양의 정수여야 합니다."
 [[ "${JENKINS_DIAGNOSTIC_LOG_TAIL_LINES}" =~ ^[1-9][0-9]*$ ]] \
   || fail "JENKINS_DIAGNOSTIC_LOG_TAIL_LINES는 양의 정수여야 합니다."
+[[ "${AUTOSCALING_READY_TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]] \
+  || fail "AUTOSCALING_READY_TIMEOUT_SECONDS는 양의 정수여야 합니다."
+[[ "${AUTOSCALING_READY_POLL_INTERVAL_SECONDS}" =~ ^[1-9][0-9]*$ ]] \
+  || fail "AUTOSCALING_READY_POLL_INTERVAL_SECONDS는 양의 정수여야 합니다."
 
 petflow_validate_terraform_identity "tapply" || exit 1
 requested_region="${AWS_REGION}"
@@ -691,7 +705,7 @@ exec 9>"${LOCK_FILE}"
 flock -n 9 || fail "다른 PetFlow 인프라 Apply/Destroy 작업이 실행 중입니다."
 log "인프라 작업 Lock 획득: ${LOCK_FILE}"
 
-log "[1/14] Terraform DEV Apply와 PostgreSQL 이미지 준비"
+log "[1/18] Terraform DEV Apply와 PostgreSQL 이미지 준비"
 PETFLOW_INTERNAL_ORCHESTRATOR=true "${SCRIPT_DIR}/scripts/apply-infra.sh"
 
 cluster_name="$(terraform -chdir="${TERRAFORM_DIR}" output -raw eks_cluster_name)"
@@ -699,7 +713,7 @@ node_group_name="$(terraform -chdir="${TERRAFORM_DIR}" output -raw eks_node_grou
 aws_region="$(terraform -chdir="${TERRAFORM_DIR}" output -raw aws_region)"
 [[ "${aws_region}" == "${EXPECTED_AWS_REGION}" ]] || fail "Terraform output Region 불일치: ${aws_region}"
 
-log "[2/14] EKS ACTIVE와 Private API 준비 대기"
+log "[2/18] EKS ACTIVE와 Private API 준비 대기"
 wait_for_eks_active "${cluster_name}" "${aws_region}"
 aws eks update-kubeconfig \
   --name "${cluster_name}" \
@@ -708,16 +722,21 @@ aws eks update-kubeconfig \
 kubectl config use-context "${KUBECONFIG_CONTEXT}" >/dev/null
 wait_for_eks_readyz
 
-log "[3/14] Worker Node Ready 대기"
+log "[3/18] Managed Node Group Worker Ready 대기"
 wait_for_worker_nodes "${cluster_name}" "${node_group_name}" "${aws_region}"
 
-log "[4/14] CNPG 백업 복원 또는 최초 initdb, 새 WAL 경로 및 base backup 검증"
+log "[4/18] Metrics Server EKS Add-on과 Resource Metrics API 준비 대기"
+if ! wait_for_metrics_server "${cluster_name}" "${aws_region}"; then
+  fail "Metrics Server가 제한 시간 내 ACTIVE/Available 상태가 되지 않았습니다."
+fi
+
+log "[5/18] CNPG 백업 복원 또는 최초 initdb, 새 WAL 경로 및 base backup 검증"
 GITOPS_DIR="${GITOPS_DIR}" "${SCRIPT_DIR}/scripts/restore-cnpg-before-gitops.sh"
 
-log "[5/14] Jenkins 필수 Secret 준비와 키 검증"
+log "[6/18] Jenkins 필수 Secret 준비와 키 검증"
 prepare_jenkins_credentials
 
-log "[6/14] GitOps Bootstrap"
+log "[7/18] GitOps Bootstrap"
 if ! (
   cd "${GITOPS_DIR}"
   task bootstrap:core
@@ -726,24 +745,39 @@ if ! (
   fail "GitOps bootstrap:core 실행에 실패했습니다."
 fi
 
-log "[7/14] Jenkins GitOps Sync와 Ready·Endpoint 대기"
+log "[8/18] KEDA GitOps Sync와 External Metrics API 준비 대기"
+if ! wait_for_keda "${cluster_name}" "${aws_region}"; then
+  fail "KEDA가 제한 시간 내 Synced/Healthy/Ready 상태가 되지 않았습니다."
+fi
+
+log "[9/18] Karpenter CRD·Controller·NodeClass·NodePool 준비 대기"
+if ! wait_for_karpenter "${cluster_name}" "${aws_region}"; then
+  fail "Karpenter가 제한 시간 내 Synced/Healthy/Ready 상태가 되지 않았습니다."
+fi
+
+log "[10/18] 서비스 HPA/PDB와 payment KEDA 대상 준비 대기"
+if ! wait_for_autoscaling_targets "${cluster_name}" "${aws_region}"; then
+  fail "서비스 HPA/PDB/ScaledObject가 제한 시간 내 준비되지 않았습니다."
+fi
+
+log "[11/18] Jenkins GitOps Sync와 Ready·Endpoint 대기"
 wait_for_jenkins
 
-log "[8/14] AWS Load Balancer Controller GitOps Sync와 Ready 대기"
+log "[12/18] AWS Load Balancer Controller GitOps Sync와 Ready 대기"
 wait_for_alb_controller
 
-log "[9/14] Web Ingress와 Public ALB active 대기"
+log "[13/18] Web Ingress와 Public ALB active 대기"
 wait_for_web_alb "${aws_region}"
 
-log "[10/14] Public Web ALB Target Health 검증"
+log "[14/18] Public Web ALB Target Health 검증"
 verify_target_health "${aws_region}"
 
-log "[11/14] Argo CD·Jenkins Management Internal ALB·Target·Route53·TLS Guard"
+log "[15/18] Argo CD·Jenkins Management Internal ALB·Target·Route53·TLS Guard"
 APPLY_MANAGEMENT_DNS="${APPLY_MANAGEMENT_DNS}" \
   PETFLOW_INTERNAL_ORCHESTRATOR=true \
   "${SCRIPT_DIR}/scripts/configure-management-access.sh"
 
-log "[12/14] Grafana Public ALB Target·Route53·HTTPS 및 Prometheus 비공개 Guard"
+log "[16/18] Grafana Public ALB Target·Route53·HTTPS 및 Prometheus 비공개 Guard"
 APPLY_OBSERVABILITY_DNS="${APPLY_OBSERVABILITY_DNS}" \
   PETFLOW_INTERNAL_ORCHESTRATOR=true \
   "${SCRIPT_DIR}/scripts/configure-observability-access.sh"
@@ -755,7 +789,7 @@ if ! (
 fi
 log "Grafana security-audit 계정 bootstrap 완료 (비밀번호는 AWS Secrets Manager에 보존)"
 
-log "[13/14] Web Route53 Alias와 공개 HTTPS"
+log "[17/18] Web Route53 Alias와 공개 HTTPS"
 if [[ "${APPLY_WEB_DNS}" == true ]]; then
   apply_web_dns "${aws_region}"
   verify_public_web
@@ -764,7 +798,7 @@ else
   log "ALB/Target Guard는 통과했습니다. DNS까지 복구하려면 APPLY_WEB_DNS=true로 실행하세요."
 fi
 
-log "[14/14] 최종 상태 요약"
+log "[18/18] 최종 상태 요약"
 print_final_summary "${cluster_name}" "${aws_region}"
 
 log "DEV 전체 Apply 완료"

@@ -135,7 +135,7 @@ karpenter_verify_controller_available() {
   local available
 
   if ! controller_json="$(karpenter_kubectl get deployment karpenter \
-    --namespace karpenter -o json)"; then
+    --namespace kube-system -o json)"; then
     karpenter_cleanup_error "Karpenter Controller 상태를 확인하지 못했습니다."
     return 1
   fi
@@ -156,7 +156,7 @@ karpenter_cleanup_diagnostics() {
   karpenter_kubectl get nodepools,nodeclaims -o wide >&2 || true
   karpenter_kubectl get nodes -l karpenter.sh/nodepool -o wide >&2 || true
   karpenter_get_owned_instances_json "${cluster_name}" "${aws_region}" >&2 || true
-  karpenter_kubectl logs deployment/karpenter --namespace karpenter --tail=100 >&2 || true
+  karpenter_kubectl logs deployment/karpenter --namespace kube-system --tail=100 >&2 || true
   karpenter_kubectl get events --all-namespaces --sort-by=.lastTimestamp >&2 || true
 }
 

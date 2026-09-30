@@ -83,7 +83,7 @@ karpenter_kubectl() {
         printf '%s' '{"items":[{"metadata":{"name":"on-demand"}}]}'
       fi
       ;;
-    "get deployment karpenter --namespace karpenter -o json")
+    "get deployment karpenter --namespace kube-system -o json")
       printf '%s' '{"spec":{"replicas":2},"status":{"availableReplicas":2}}'
       ;;
     "delete nodepools --all --wait=false"|"delete nodeclaims --all --wait=false")

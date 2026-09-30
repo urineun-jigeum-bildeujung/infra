@@ -115,6 +115,12 @@ ScaledObject/HPA, producer/consumer, and temporary Kafka NetworkPolicy. All
 service Deployments/StatefulSets were Ready afterward, database connections
 were 5/100, and business Kafka offsets/log-end remained unchanged.
 
+The final Argo CD check showed `platform-root` Healthy but OutOfSync only on
+the child `alloy` Application object. Its automated sync reported success and
+`alloy` itself was Synced/Healthy; no test resource remained. This recurrent
+Application-object drift is a separate GitOps follow-up and was not auto-fixed
+as part of this validation.
+
 Run the HTTP stages from the repository root:
 
 ```bash

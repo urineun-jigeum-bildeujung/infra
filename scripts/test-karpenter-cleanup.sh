@@ -68,7 +68,7 @@ karpenter_kubectl() {
       fi
       ;;
     "get nodeclaims -o json")
-      if [[ "${DELETE_STARTED}" == true && "${MOCK_SCENARIO}" == "success" ]]; then
+      if [[ "${DELETE_STARTED}" == true && ("${MOCK_SCENARIO}" == "success" || "${MOCK_SCENARIO}" == "terminated_rerun") ]]; then
         printf '%s' '{"items":[]}'
       elif [[ "${MOCK_SCENARIO}" == "empty" || "${MOCK_SCENARIO}" == "no_crds" || "${MOCK_SCENARIO}" == "orphan" || "${MOCK_SCENARIO}" == "nodepool_only" ]]; then
         printf '%s' '{"items":[]}'
@@ -112,6 +112,8 @@ karpenter_aws() {
   if [[ "${MOCK_SCENARIO}" == "empty" || "${MOCK_SCENARIO}" == "no_crds" || "${MOCK_SCENARIO}" == "nodepool_only" || \
         ("${DELETE_STARTED}" == true && "${MOCK_SCENARIO}" == "success") ]]; then
     printf '%s' '[]'
+  elif [[ "${MOCK_SCENARIO}" == "terminated_rerun" ]]; then
+    printf '%s' '[{"InstanceId":"i-0123456789abcdef0","State":"terminated","Tags":[{"Key":"kubernetes.io/cluster/petflow-eks","Value":"owned"},{"Key":"karpenter.sh/nodepool","Value":"on-demand"}]}]'
   else
     printf '%s' '[{"InstanceId":"i-0123456789abcdef0","State":"running","Tags":[{"Key":"kubernetes.io/cluster/petflow-eks","Value":"owned"},{"Key":"karpenter.sh/nodepool","Value":"on-demand"}]}]'
   fi
@@ -143,6 +145,12 @@ test_nodepool_only() {
   mock_reset nodepool_only
   run_cleanup
   [[ "${DELETE_CALLS}" -eq 1 ]]
+}
+
+test_terminated_rerun() {
+  mock_reset terminated_rerun
+  run_cleanup
+  [[ "${DELETE_CALLS}" -eq 2 ]]
 }
 
 test_timeout() {
@@ -196,6 +204,7 @@ assert_success "MNG/타 클러스터 제외 태그 필터" test_empty
 assert_success "미설치/재실행 no-op" test_no_crds_rerun
 assert_success "NodeClaim 및 EC2 정상 종료" test_success
 assert_success "빈 NodePool 제거로 재생성 차단" test_nodepool_only
+assert_success "이미 종료된 EC2의 NodeClaim 재실행 정리" test_terminated_rerun
 assert_failure "종료 timeout 시 중단" test_timeout
 assert_failure "Kubernetes 조회 실패 시 중단" test_kube_failure
 assert_failure "AWS 조회 실패 시 중단" test_aws_failure

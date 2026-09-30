@@ -130,3 +130,29 @@ scripts/autoscaling-validation/run-http.sh
 Run the dedicated Kafka/KEDA test and watch the printed commands:
 
 ```bash
+# These are rerun examples; they were not executed for the PR review fix.
+EXPECTED_CONTEXT=petflow-dev scripts/autoscaling-validation/run-kafka.sh
+EXPECTED_CONTEXT=petflow-dev scripts/autoscaling-validation/cleanup.sh
+```
+
+The Kafka runner creates the isolated resources and then prints Watch and
+Cleanup commands. It does not automatically decide whether scale-out,
+backlog drain, or scale-in succeeded, and it does not automatically clean up.
+While it runs, separately observe database connections, business Kafka lag,
+pod availability/restarts, and NodeClaims, and apply the original stop guards.
+
+Before cleanup, the cleanup script fixes all operations to the validated
+context and preflights ownership of the Namespace, Kafka NetworkPolicy,
+KafkaTopic, and KafkaUser. It only deletes resources carrying
+`app.kubernetes.io/part-of=autoscaling-validation`; NotFound is a safe no-op,
+while context, authorization, connectivity, JSON, ownership, deletion, or
+timeout failures stop with a non-zero exit.
+
+Before rerunning the HTTP stages, confirm that the default time-deal detail
+item IDs `7..12` are still valid. Override them when necessary, for example:
+
+```bash
+DETAIL_IDS=21,22,23 scripts/autoscaling-validation/run-http.sh
+```
+
+Always keep the stop guards from the test instruction active while rerunning.

@@ -50,4 +50,3 @@ kubectl apply -f "${WORKLOAD_MANIFEST}"
 
 echo "Watch: kubectl get pods,hpa,scaledobject -n ${TEST_NAMESPACE} -w"
 echo "Cleanup: ${ROOT_DIR}/scripts/autoscaling-validation/cleanup.sh"
-diff --git a/docs/autoscaling-validation-20260930.md b/docs/autoscaling-validation-20260930.md

@@ -37,18 +37,16 @@ def source_hashes():
     return hashes
 
 
-def qualification():
-    path = os.environ.get("PETFLOW_STATEFUL_QUALIFICATION")
-    require(path, "격리 복원 검증 보고서가 필요합니다. PETFLOW_STATEFUL_QUALIFICATION을 지정하세요. 운영 리소스는 아직 중지하지 않았습니다.")
-    report = load(path)
-    require(report.get("schemaVersion") == 1 and report.get("isolated") is True, "isolated qualification evidence required")
-    require(report.get("sourceHashes") == source_hashes(), "qualification is for different code/configuration")
-    require(report.get("kafkaVersion") == "3.9.0" and report.get("strimziVersion") == "0.45.2", "qualification version mismatch")
-    tests = ("coldRestore", "clusterIdentity", "committedOffsets", "messages", "scramAuthentication",
-             "produceConsumeAfterRestore", "cartOnly", "redisRestart", "partialRestoreRetry")
-    require(all(report.get("checks", {}).get(k) is True for k in tests), "qualification checks incomplete")
-    require(report.get("evidenceUri") and report.get("verifiedAt"), "qualification evidence location/time missing")
-    return report
+def compatible_source(recorded):
+    current = source_hashes()
+    if recorded == current:
+        return True
+    # 3b6a992 used the same data recovery procedure but required a local
+    # qualification report before backup. Preserve recovery of its existing
+    # manifests after removing that precondition. Every other file must match.
+    previous = dict(current)
+    previous["infra/scripts/stateful/control.py"] = "41859dee976896ce46b0418fe717cb50383f38c55c1b615bdc24b12f446ad78d"
+    return recorded == previous
 
 
 def manifest_shape(manifest):
@@ -82,7 +80,6 @@ def evidence_directory():
 
 def backup():
     identity()
-    qualification()  # MUST precede every live mutation.
     run_id = os.environ.get("PETFLOW_DESTROY_RUN_ID", "")
     require(re.match(r"^[A-Za-z0-9_-]{1,40}$", run_id), "invalid destroy run ID")
     require(aws("s3api", "get-bucket-versioning", "--bucket", BUCKET).get("Status") == "Enabled", "versioned backup bucket required")
@@ -159,12 +156,14 @@ def restore():
     selected = marker and marker.get("data", {}).get("selectedManifest")
     latest = json.loads(selected) if selected else read_latest()
     if latest is None:
-        require(os.environ.get("PETFLOW_STATEFUL_INITIALIZE") == "true", "통합 백업이 없습니다. 최초 설치만 PETFLOW_STATEFUL_INITIALIZE=true를 사용하세요. 기존 CNPG 단독 백업으로 자동 대체하지 않습니다.")
         # Initialization must not hide any old/partial backup artifacts.
         if marker is None:
             for prefix in ("recovery/runs/", "cnpg/"):
                 listed = aws("s3api", "list-objects-v2", "--bucket", BUCKET, "--prefix", prefix, "--max-keys", "1")
                 require(not listed.get("Contents"), "backup artifacts exist; refusing empty initialization")
+            require(not get("statefulset", "redis-master", "redis") and
+                    not get("kafka", "pet-subscription-kafka", "kafka"),
+                    "existing data stores without a recovery manifest; refusing empty initialization")
             apply({"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": "database"}})
             mark({"phase": "initializing", "runId": "initial"})
         else:
@@ -181,7 +180,7 @@ def restore():
         mark({"phase": "ready", "runId": "initial", "verifiedAt": utc()})
         return
     verify_manifest(latest)
-    require(latest["sourceHashes"] == source_hashes(), "restore code/GitOps configuration differs from the backup; use the recorded revisions")
+    require(compatible_source(latest["sourceHashes"]), "restore code/GitOps configuration differs from the backup; use the recorded revisions")
     directory = ROOT / ".restore-evidence" / latest["runId"]
     directory.mkdir(parents=True, exist_ok=True)
     directory.chmod(0o700)

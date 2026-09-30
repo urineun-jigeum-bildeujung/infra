@@ -200,6 +200,14 @@ delete_strimzi_resources() {
 
     if [[ -n "${crd_resource}" ]]; then
       echo "[cleanup-k8s] Strimzi Resource 삭제: ${resource_name}"
+      if [[ "${resource_name}" == kafkatopic ]]; then
+        # The cold backup deliberately leaves Kafka stopped. Topic Operator
+        # cannot finish broker-side deletion, so release only verified,
+        # already-deleting topic finalizers after the backup/storage guards.
+        "${KUBECTL[@]}" delete kafkatopic --all --namespace kafka \
+          --ignore-not-found --wait=false
+        python3 "${SCRIPT_DIR}/scripts/release-kafka-topic-finalizers.py"
+      fi
       "${KUBECTL[@]}" delete "${resource_name}" --all --namespace kafka \
         --ignore-not-found --wait=true --timeout=10m
     else

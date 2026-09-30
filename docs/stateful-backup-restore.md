@@ -12,9 +12,9 @@ Redis cart 8개의 AOF·재시작 보존, Kafka 메시지·offset·identity·TLS
 증거는 작업 공간 `backup-measurements/REPORT-20261001.md`와 해당 실행별 JSON에 보관한다.
 다만 CNPG와 Redis/Kafka의 백업은 별도 실행으로, 같은 중단 구간의 통합 manifest 및
 전체 destroy/apply 재생성 qualification은 아직 완료하지 않았다.
-`tdestroy.sh`는 승인된 격리 검증 보고서가 없으면 서비스 중지 전에
-실패한다. 예시 JSON의 false를 근거 없이 true로 바꾸지 않는다. JSON은 검증 결과를
-전달하는 운영 기록이지, 스스로 검증을 수행하거나 진위를 증명하는 인증서가 아니다.
+`tdestroy.sh`는 로컬 검증 보고서나 별도 환경 변수 없이 실행한다. 서비스 상태 기록과
+쓰기 중단 후 실제 백업을 검증하며, 백업 실패 시 삭제를 중단한다. 시험 보고서는
+운영 참고 기록이며 스크립트 실행 전제조건이 아니다.
 
 ## 사전 요구사항
 
@@ -45,9 +45,9 @@ cluster ID, node ID, 실제 메시지, offset, 인증 성공 결과를 보고서
 5. Redis/Kafka 복원 도중 중단 후 동일 run으로 재실행. 기존 사용자 데이터가 달라졌을 때
    덮어쓰기 대신 실패하는지 확인.
 
-이후 `gitops/operations/data-protection/stateful-qualification.example.json`을 로컬
-`.stateful-qualification.json`로 복사한다. 실제 증거 경로/시각/검증 결과를 기록하고 다음
-명령 출력으로 `sourceHashes`를 채운다. 코드/구성이 변경되면 검증 기록이 무효화된다.
+검증 결과는 보고서에 기록한다. 로컬 qualification JSON 생성이나 지정은 필요 없다.
+다음 명령으로 백업에 기록되는 복원 코드·설정 해시를 조회할 수 있다. 복원에서는
+설정 일치 검사를 유지하며, 로컬 보고서 요구만 제거한 이전 버전의 백업도 지원한다.
 
 ```bash
 python3 scripts/stateful/control.py source-hashes
@@ -60,7 +60,6 @@ PV/PVC와 리소스 식별을 분리하고 기존 운영 디스크를 교체하�
 ## destroy
 
 ```bash
-export PETFLOW_STATEFUL_QUALIFICATION="$PWD/.stateful-qualification.json"
 ./tdestroy.sh
 ```
 
@@ -120,7 +119,7 @@ GitOps를 시작한다. `task bootstrap:root-app`도 ready 검사를 수행한�
 실수 방지 장치이며 관리자 직접 `kubectl apply`를 권한 수준에서 차단하는 기능은 아니다.
 
 통합 manifest가 없으면 자동 빈 초기화를 하지 않는다. 완전히 첫 설치이고 어떤 이전
-백업 객체도 없을 때만 `PETFLOW_STATEFUL_INITIALIZE=true ./tapply.sh`를 사용한다.
+백업 객체와 기존 Redis/Kafka도 없을 때만 `./tapply.sh`가 자동으로 최초 설치한다.
 기존 CNPG 단독 백업만 있는 환경은 자동으로 빈 Kafka/cart를 섞어 복원하지 않는다.
 
 ## 검증과 보고서

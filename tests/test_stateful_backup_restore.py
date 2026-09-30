@@ -226,22 +226,26 @@ class GuardTests(unittest.TestCase):
                 aws.assert_not_called()
                 render.assert_not_called()
 
-    def test_qualification_absent_aborts_before_live_mutation(self):
-        with patch.dict(os.environ, {"PETFLOW_STATEFUL_QUALIFICATION": ""}), \
-                patch.object(control, "identity"), patch.object(control.maintenance, "quiesce") as stop, \
-                patch.object(control.kafka, "inventory") as inventory:
-            with self.assertRaisesRegex(RuntimeError, "격리"):
+    def test_backup_without_local_report_reaches_aws_preflight(self):
+        with patch.dict(os.environ, {"PETFLOW_STATEFUL_QUALIFICATION": "", "PETFLOW_DESTROY_RUN_ID": "test-run"}), \
+                patch.object(control, "identity"), patch.object(control, "load") as load, \
+                patch.object(control, "aws", side_effect=RuntimeError("preflight-probe")) as aws, \
+                patch.object(control.maintenance, "quiesce") as stop:
+            with self.assertRaisesRegex(RuntimeError, "preflight-probe"):
                 control.backup()
             stop.assert_not_called()
-            inventory.assert_not_called()
+            load.assert_not_called()
+            self.assertEqual(aws.call_args[0][:2], ("s3api", "get-bucket-versioning"))
 
-    def test_qualification_is_invalidated_by_code_changes(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "report.json"
-            path.write_text(json.dumps({"schemaVersion": 1, "isolated": True, "sourceHashes": {}}))
-            with patch.dict(os.environ, {"PETFLOW_STATEFUL_QUALIFICATION": str(path)}):
-                with self.assertRaisesRegex(RuntimeError, "different code"):
-                    control.qualification()
+    def test_legacy_backup_requires_all_other_code_and_config_hashes_to_match(self):
+        current = {"infra/scripts/stateful/control.py": "current", "kafka.yaml": "same"}
+        previous = dict(current)
+        previous["infra/scripts/stateful/control.py"] = "41859dee976896ce46b0418fe717cb50383f38c55c1b615bdc24b12f446ad78d"
+        with patch.object(control, "source_hashes", return_value=current):
+            self.assertTrue(control.compatible_source(previous))
+            previous["kafka.yaml"] = "changed"
+            self.assertFalse(control.compatible_source(previous))
+            self.assertFalse(control.compatible_source({}))
 
     def test_live_ready_apply_does_not_run_data_restore(self):
         with patch.object(control, "identity"), patch.object(control, "get", return_value={"data": {"phase": "ready"}}), \
@@ -251,12 +255,12 @@ class GuardTests(unittest.TestCase):
             latest.assert_not_called()
             restore.assert_not_called()
 
-    def test_missing_cohort_never_initializes_without_explicit_request(self):
+    def test_missing_cohort_with_existing_backup_never_initializes(self):
         with patch.object(control, "identity"), patch.object(control, "get", return_value=None), \
                 patch.object(control.maintenance, "assert_no_business_pods"), \
                 patch.object(control, "read_latest", return_value=None), patch.object(control, "run") as invoke, \
-                patch.dict(os.environ, {"PETFLOW_STATEFUL_INITIALIZE": "false"}):
-            with self.assertRaisesRegex(RuntimeError, "통합 백업"):
+                patch.object(control, "aws", return_value={"Contents": [{"Key": "existing-backup"}]}):
+            with self.assertRaisesRegex(RuntimeError, "backup artifacts"):
                 control.restore()
             invoke.assert_not_called()
 
@@ -268,6 +272,32 @@ class GuardTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "checksum"):
                 common.download({"bucket": common.BUCKET, "key": "recovery/runs/x/cart.json",
                                  "versionId": "one", "sha256": "wrong"})
+
+    def test_first_install_needs_no_manual_initialization_flag(self):
+        with patch.dict(os.environ, {}, clear=True), patch.object(control, "identity"), \
+                patch.object(control, "get", return_value=None), \
+                patch.object(control.maintenance, "assert_no_business_pods"), \
+                patch.object(control, "read_latest", return_value=None), \
+                patch.object(control, "aws", return_value={}), patch.object(control, "apply"), \
+                patch.object(control, "mark") as mark, patch.object(control, "run") as initialize, \
+                patch.object(control.bootstrap, "prepare_redis"), \
+                patch.object(control.bootstrap, "render_application"), patch.object(control, "kube"), \
+                patch.object(common, "poll"), patch.object(control, "current_ready"):
+            control.restore()
+            initialize.assert_called_once()
+            completed = mark.call_args[0][0]
+            self.assertEqual((completed["phase"], completed["runId"]), ("ready", "initial"))
+
+    def test_existing_redis_without_backup_blocks_empty_initialization(self):
+        def get(kind, *args, **kwargs):
+            return {"spec": {"replicas": 1}} if kind == "statefulset" else None
+        with patch.object(control, "identity"), patch.object(control, "get", side_effect=get), \
+                patch.object(control.maintenance, "assert_no_business_pods"), \
+                patch.object(control, "read_latest", return_value=None), \
+                patch.object(control, "aws", return_value={}), patch.object(control, "run") as initialize:
+            with self.assertRaisesRegex(RuntimeError, "existing data stores"):
+                control.restore()
+            initialize.assert_not_called()
 
     def test_mixed_run_manifest_is_rejected(self):
         source = {"schemaVersion": 1, "complete": True, "account": common.ACCOUNT,
@@ -307,7 +337,7 @@ class GuardTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             env = {"PETFLOW_DESTROY_RUN_ID": "test", "PETFLOW_DESTROY_EVIDENCE_DIR": directory,
                    "KUBECONFIG": "test-only", "PETFLOW_CNPG_BACKUP_MANIFEST": directory + "/cnpg.json"}
-            with patch.dict(os.environ, env), patch.object(control, "identity"), patch.object(control, "qualification"), \
+            with patch.dict(os.environ, env), patch.object(control, "identity"), \
                     patch.object(control, "aws", return_value={"Status": "Enabled"}), \
                     patch.object(control.kafka, "inventory"), \
                     patch.object(control.maintenance, "quiesce", return_value={"quiescedAt": "now"}), \

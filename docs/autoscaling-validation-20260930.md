@@ -1,158 +1,153 @@
-# HPA, KEDA, and Karpenter validation — 2026-09-30
+# HPA·KEDA·Karpenter 검증 결과 — 2026-09-30
 
-## Result
+## 결과
 
-The bounded DEV validation completed without application errors, database
-pressure, restarts, or changes to business Kafka data. KEDA completed a full
-1 → 3 → 1 consumer cycle. Karpenter provisioned one additional on-demand node,
-which remained because Jenkins workloads adopted it after test cleanup. The
-product HPA did not scale because observed CPU remained below its 60% target.
+제한된 DEV 검증은 애플리케이션 오류, 데이터베이스 압력, 재시작, 업무 Kafka
+데이터 변경 없이 완료됐다. KEDA 소비자는 1 → 3 → 1 전체 확장·축소 주기를
+완료했다. Karpenter는 On-Demand 노드 한 대를 추가했으며, 테스트 정리 후 Jenkins
+작업이 해당 노드를 사용해 유지됐다. Product HPA는 관측 CPU가 목표 60%보다 낮아
+확장되지 않았다.
 
-No Terraform apply/destroy, business transaction, Spot node, recurring job,
-production threshold change, or forced node deletion was performed.
+Terraform apply/destroy, 실제 업무 트랜잭션, Spot 노드, 반복 작업, 운영 임계값
+변경 및 강제 노드 삭제는 수행하지 않았다.
 
-## Environment and baseline
+## 환경 및 기준선
 
-- Window: 2026-09-30 14:25–15:14 KST (05:25–06:14 UTC)
-- Kubernetes context: `petflow-dev`
-- AWS account/region: `297165773875`, `ap-northeast-2`
-- Baseline observation: 5 minutes
-- Service pods: 30/30 Ready, zero restarts and zero Pending
-- Product HPA: 2/3 replicas, CPU target 60%, initial CPU 2–5%
-- Database: 5/100 connections, no connection errors
-- Product p95: about 12.5 ms; 5xx: 0
-- Karpenter: one Ready `m7i-flex.large` NodeClaim before the test
-- Business Kafka group `payment-service.refund-consumer`: topic
-  `order.item-cancelled`, log-end 0 before and after the test
+- 실행 시간: 2026-09-30 14:25–15:14 KST(05:25–06:14 UTC)
+- Kubernetes 컨텍스트: `petflow-dev`
+- AWS 계정/리전: `297165773875`, `ap-northeast-2`
+- 기준선 관측 시간: 5분
+- 서비스 Pod: 30/30 Ready, 재시작 0, Pending 0
+- Product HPA: replica 2/3, CPU 목표 60%, 초기 CPU 2–5%
+- 데이터베이스: 연결 5/100, 연결 오류 없음
+- Product p95: 약 12.5ms, 5xx 0
+- Karpenter: 테스트 전 Ready 상태의 `m7i-flex.large` NodeClaim 1개
+- 업무 Kafka 그룹 `payment-service.refund-consumer`: 토픽
+  `order.item-cancelled`, 테스트 전후 log-end 0
 
-## Public read-only HTTP test
+## 외부 공개 읽기 전용 HTTP 테스트
 
-Traffic originated outside the cluster and used only these public GET routes:
+클러스터 외부에서 다음 공개 GET 경로에만 트래픽을 전송했다.
 
 - 30% `GET /api/v1/time-deals?status=ACTIVE`
 - 70% `GET /api/v1/time-deals/items/{7..12}`
 
-The runner capped concurrency at 20, used a 5-second timeout, performed no
-retries, and stopped on three errors, repeated auth/not-found responses,
-dropped iterations, or p95 ≥ 1 second. Total active duration was 11 minutes.
+실행기는 동시성을 20으로 제한하고 요청 제한 시간을 5초로 설정했으며 재시도하지
+않았다. 오류 3건, 반복된 인증 오류·NotFound, 반복 누락 또는 p95 1초 이상이면
+중단하도록 구성했다. 전체 활성 부하 시간은 11분이었다.
 
-| Rate | Duration | Requests | Failures | p95 | Max |
+| 요청률 | 실행 시간 | 요청 수 | 실패 | p95 | 최대 |
 | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 RPS | 2m | 120 | 0 | 35.69 ms | 114.16 ms |
-| 5 RPS | 3m | 900 | 0 | 28.76 ms | 84.34 ms |
-| 10 RPS | 3m | 1,800 | 0 | 27.90 ms | 83.07 ms |
-| 20 RPS | 3m | 3,600 | 0 | 34.01 ms | 258.64 ms |
+| 1 RPS | 2분 | 120 | 0 | 35.69ms | 114.16ms |
+| 5 RPS | 3분 | 900 | 0 | 28.76ms | 84.34ms |
+| 10 RPS | 3분 | 1,800 | 0 | 27.90ms | 83.07ms |
+| 20 RPS | 3분 | 3,600 | 0 | 34.01ms | 258.64ms |
 
-All 6,420 requests returned HTTP 200. There were no timeouts, dropped
-iterations, 401/403/404/429 responses, or 5xx responses. Product CPU peaked at
-an observed 52%, replicas stayed at 2, database connections stayed at 5, and
-pod restarts stayed at zero. This proves bounded-load stability but does not
-prove product HPA scale-out because the 60% CPU trigger was not reached.
+전체 6,420건이 HTTP 200으로 성공했다. timeout, 반복 누락, 401/403/404/429,
+5xx 응답은 없었다. Product CPU 관측 최댓값은 52%, replica는 2개, 데이터베이스
+연결은 5개, Pod 재시작은 0으로 유지됐다. 이 결과는 제한된 부하에서의 안정성을
+확인하지만 CPU 60% 조건에 도달하지 않았으므로 Product HPA 확장을 검증한 것은
+아니다.
 
-The four k6 summary JSON files in
-`docs/evidence/autoscaling-validation-20260930/` are the raw evidence.
+`docs/evidence/autoscaling-validation-20260930/`의 k6 요약 JSON 파일 4개가
+원본 증적이다.
 
-## Dedicated Kafka/KEDA test
+## 전용 Kafka/KEDA 테스트
 
-Isolated resources used:
+사용한 격리 리소스는 다음과 같다.
 
 - Namespace: `autoscaling-validation`
-- Topic: `autoscaling-validation-20260930`, 3 partitions, RF 1
+- Topic: `autoscaling-validation-20260930`, partition 3개, RF 1
 - Group: `autoscaling-validation-consumer-20260930`
-- SCRAM user: `autoscaling-validation-20260930`
-- ScaledObject: Kafka-only, min 1, max 3, lag threshold 10
-- Producer: exactly 300 records, 512 bytes each, 10 records/sec
-- Consumer: about 1 committed record/sec per pod
+- SCRAM 사용자: `autoscaling-validation-20260930`
+- ScaledObject: Kafka 전용, min 1, max 3, lag 임계값 10
+- Producer: 512바이트 레코드 정확히 300건, 초당 10건
+- Consumer: Pod당 초당 약 1건 처리 후 commit
 
-Observed sequence:
+관측 순서는 다음과 같다.
 
-1. Consumer connected at one replica with lag 0.
-2. Producer completed 300 records at 10.017 records/sec.
-3. Total lag rose to roughly 278; ScaledObject became Active.
-4. KEDA/HPA increased the deployment from 1 to 2 to 3 replicas.
-5. Lag fell through 137 to 0 with zero consumer restarts.
-6. ScaledObject became inactive and replicas returned 3 → 2 → 1.
+1. Consumer 1개가 lag 0 상태로 연결됐다.
+2. Producer가 초당 10.017건으로 300건 생성을 완료했다.
+3. 전체 lag가 약 278까지 증가하고 ScaledObject가 Active 상태가 됐다.
+4. KEDA/HPA가 Deployment를 1 → 2 → 3 replica로 확장했다.
+5. Consumer 재시작 없이 lag가 137을 거쳐 0으로 감소했다.
+6. ScaledObject가 비활성 상태로 돌아가고 replica가 3 → 2 → 1로 축소됐다.
 
-The first producer attempt made zero records because its generated client
-configuration omitted `bootstrap.servers`. The Job failed closed, was deleted,
-the manifest was corrected, and only the successful 300-record run contributed
-data. An earlier pod-affinity attempt also stayed Pending because the broker
-node had reached its pod limit; it was removed without producing data.
+첫 Producer 시도에서는 생성한 클라이언트 설정에 `bootstrap.servers`가 빠져
+레코드를 한 건도 생성하지 못했다. Job은 실패 상태로 종료됐고 삭제한 뒤
+매니페스트를 수정했다. 실제 데이터는 성공한 300건 실행에서만 생성됐다. 이전
+Pod affinity 시도도 브로커 노드의 Pod 수 한도 때문에 Pending 상태에 머물렀으며
+데이터를 만들지 않고 제거했다.
 
-Kafka broker authorization is disabled in DEV (`authorization` is absent and
-the user operator reports ACL admin support false). The test therefore used a
-dedicated authenticated SCRAM identity, but broker-enforced least-privilege
-ACLs could not be applied without changing shared Kafka configuration. The
-temporary additive NetworkPolicy allowed only the test namespace to reach the
-TLS listener and did not roll the broker.
+DEV Kafka는 broker authorization이 비활성 상태이며(`authorization` 없음,
+user operator의 ACL 관리 지원 false), 이 테스트는 전용 SCRAM 인증 사용자를
+사용했지만 공유 Kafka 설정을 변경하지 않고 broker ACL로 최소 권한을 강제할
+수는 없었다. 임시 추가형 NetworkPolicy는 테스트 namespace만 TLS listener에
+접근하도록 허용했으며 broker를 재기동하지 않았다.
 
-## Karpenter and NAT observations
+## Karpenter 및 NAT 관측
 
-- Initial NodeClaims: 1
-- Maximum/final NodeClaims during the test: 2
-- New claim: `on-demand-smzqj`, on-demand `m7i-flex.large`
-- Created: 06:00:39 UTC; Ready: 06:01:06 UTC
-- Test-created node limit: respected (one additional node)
-- No Spot capacity and no forced node deletion
+- 테스트 전 NodeClaim: 1개
+- 테스트 중 최대 및 종료 시점 NodeClaim: 2개
+- 신규 NodeClaim: `on-demand-smzqj`, On-Demand `m7i-flex.large`
+- 생성 시각: 06:00:39 UTC, Ready 시각: 06:01:06 UTC
+- 테스트 신규 노드 한도: 준수(1개 추가)
+- Spot 사용 및 강제 노드 삭제: 없음
 
-After test resources were removed, two Jenkins jobs were running on the new
-node. Karpenter correctly retained it; scale-in was therefore not expected and
-was not forced. This validates provisioning, while consolidation after complete
-workload departure remains unobserved in this run.
+테스트 리소스를 제거한 뒤 Jenkins 작업 2개가 신규 노드에서 실행되고 있었다.
+따라서 Karpenter가 노드를 유지하는 것이 정상이며 강제로 축소하지 않았다. 노드
+생성은 검증했지만 모든 작업이 빠진 뒤의 consolidation은 이번 실행에서 관측하지
+못했다.
 
-The Strimzi image was not cached on the new node. Kubernetes recorded two
-concurrent pulls of a 375,539,008-byte image for consumer and producer. The
-upper-bound external image transfer attributable to this test is therefore
-about 751 MB (actual registry-layer deduplication may reduce it). Public HTTP
-test traffic received about 11.69 MB and sent about 0.43 MB. These quantities
-are orders of magnitude below 2 TB, but the image pulls are relevant when
-reviewing NAT Gateway bytes.
+신규 노드에는 Strimzi 이미지가 캐시되어 있지 않았다. Kubernetes 이벤트에는
+Consumer와 Producer가 각각 375,539,008바이트 이미지를 동시에 받은 것으로
+기록됐다. 따라서 이 테스트로 발생할 수 있는 외부 이미지 전송량 상한은 약
+751MB이며 실제 registry layer 중복 제거에 따라 더 작을 수 있다. 공개 HTTP
+테스트 수신량은 약 11.69MB, 송신량은 약 0.43MB였다. 두 수치는 2TB와 큰 차이가
+있지만 NAT Gateway 전송량을 검토할 때 이미지 다운로드는 고려해야 한다.
 
-## Cleanup and rerun
+## 정리 및 재실행
 
-Cleanup removed the test namespace, topic, KafkaUser, credential copy,
-ScaledObject/HPA, producer/consumer, and temporary Kafka NetworkPolicy. All
-service Deployments/StatefulSets were Ready afterward, database connections
-were 5/100, and business Kafka offsets/log-end remained unchanged.
+정리 과정에서 테스트 namespace, topic, KafkaUser, 복제한 자격증명, ScaledObject와
+HPA, Producer와 Consumer, 임시 Kafka NetworkPolicy를 제거했다. 이후 모든 서비스
+Deployment와 StatefulSet이 Ready였고 데이터베이스 연결은 5/100, 업무 Kafka
+offset과 log-end는 변경되지 않았다.
 
-The final Argo CD check showed `platform-root` Healthy but OutOfSync only on
-the child `alloy` Application object. Its automated sync reported success and
-`alloy` itself was Synced/Healthy; no test resource remained. This recurrent
-Application-object drift is a separate GitOps follow-up and was not auto-fixed
-as part of this validation.
+최종 Argo CD 점검에서 `platform-root`는 Healthy이지만 자식 `alloy` Application
+객체 하나 때문에 OutOfSync였다. 자동 동기화 결과는 성공이었고 `alloy` 자체는
+Synced/Healthy였으며 테스트 리소스는 남아 있지 않았다. 이 반복적인 Application
+객체 drift는 별도 GitOps 후속 과제이며 이번 검증에서 자동 수정하지 않았다.
 
-Run the HTTP stages from the repository root:
+저장소 루트에서 HTTP 단계를 재실행한다.
 
 ```bash
 scripts/autoscaling-validation/run-http.sh
 ```
 
-Run the dedicated Kafka/KEDA test and watch the printed commands:
+전용 Kafka/KEDA 테스트를 실행하고 출력되는 관측 명령을 확인한다.
 
 ```bash
-# These are rerun examples; they were not executed for the PR review fix.
+# 아래는 재실행 예시이며 PR 검토 수정 과정에서는 실행하지 않았다.
 EXPECTED_CONTEXT=petflow-dev scripts/autoscaling-validation/run-kafka.sh
 EXPECTED_CONTEXT=petflow-dev scripts/autoscaling-validation/cleanup.sh
 ```
 
-The Kafka runner creates the isolated resources and then prints Watch and
-Cleanup commands. It does not automatically decide whether scale-out,
-backlog drain, or scale-in succeeded, and it does not automatically clean up.
-While it runs, separately observe database connections, business Kafka lag,
-pod availability/restarts, and NodeClaims, and apply the original stop guards.
+Kafka 실행기는 격리 리소스를 생성한 뒤 관측 및 정리 명령을 출력한다. 확장,
+backlog 소진 또는 축소 성공을 자동 판정하지 않으며 자동으로 정리하지도 않는다.
+실행 중에는 데이터베이스 연결, 업무 Kafka lag, Pod 가용성·재시작, NodeClaim을
+별도로 관측하고 원래 지시서의 중단 조건을 적용해야 한다.
 
-Before cleanup, the cleanup script fixes all operations to the validated
-context and preflights ownership of the Namespace, Kafka NetworkPolicy,
-KafkaTopic, and KafkaUser. It only deletes resources carrying
-`app.kubernetes.io/part-of=autoscaling-validation`; NotFound is a safe no-op,
-while context, authorization, connectivity, JSON, ownership, deletion, or
-timeout failures stop with a non-zero exit.
+정리 스크립트는 검증한 컨텍스트를 모든 작업에 고정하고 Namespace, Kafka
+NetworkPolicy, KafkaTopic, KafkaUser의 소유권을 먼저 검사한다.
+`app.kubernetes.io/part-of=autoscaling-validation` 라벨이 있는 리소스만 삭제한다.
+NotFound는 안전한 no-op으로 처리하지만 컨텍스트, 권한, 연결, JSON, 소유권,
+삭제 또는 timeout 오류는 0이 아닌 종료 코드로 중단한다.
 
-Before rerunning the HTTP stages, confirm that the default time-deal detail
-item IDs `7..12` are still valid. Override them when necessary, for example:
+HTTP 단계를 다시 실행하기 전에 기본 타임딜 상세 항목 ID `7..12`가 여전히
+유효한지 확인한다. 필요하면 다음처럼 덮어쓴다.
 
 ```bash
 DETAIL_IDS=21,22,23 scripts/autoscaling-validation/run-http.sh
 ```
 
-Always keep the stop guards from the test instruction active while rerunning.
+재실행 중에는 항상 테스트 지시서의 중단 조건을 유지한다.

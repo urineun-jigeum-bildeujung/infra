@@ -20,7 +20,7 @@ printf '%s\n' "$*" >>"${MOCK_LOG}"
 if [[ "${1:-}" == "config" && "${2:-}" == "current-context" ]]; then
   case "${MOCK_SCENARIO}" in
     context_failure)
-      echo "mock kubeconfig failure" >&2
+      echo "모의 kubeconfig 조회 실패" >&2
       exit 1
       ;;
     context_mismatch)
@@ -60,11 +60,11 @@ fi
 if [[ "${command_name}" == "get" ]]; then
   case "${MOCK_SCENARIO}:${resource}" in
     forbidden:networkpolicy)
-      echo "Error from server (Forbidden): forbidden" >&2
+      echo "서버 응답 오류(Forbidden): 접근 거부" >&2
       exit 1
       ;;
     get_timeout:kafkatopic)
-      echo "Unable to connect to the server: timeout" >&2
+      echo "서버 연결 timeout" >&2
       exit 1
       ;;
     invalid_json:kafkatopic)
@@ -87,11 +87,11 @@ fi
 if [[ "${command_name}" == "delete" ]]; then
   case "${MOCK_SCENARIO}:${resource}" in
     delete_failure:networkpolicy)
-      echo "mock delete failure" >&2
+      echo "모의 삭제 실패" >&2
       exit 1
       ;;
     delete_timeout:kafkatopic)
-      echo "mock delete timeout" >&2
+      echo "모의 삭제 timeout" >&2
       exit 1
       ;;
   esac
@@ -103,7 +103,7 @@ MOCK
 chmod +x "${FAKE_BIN}/kubectl"
 
 fail() {
-  echo "FAIL: $*" >&2
+  echo "실패: $*" >&2
   exit 1
 }
 
@@ -127,10 +127,10 @@ run_case() {
 
   if [[ "${expected}" == "success" && ${status} -ne 0 ]]; then
     sed -n '1,160p' "${output_file}" >&2
-    fail "${scenario} returned ${status}; expected success"
+    fail "${scenario}의 종료 코드는 ${status}이며 성공을 예상했습니다"
   fi
   if [[ "${expected}" == "failure" && ${status} -eq 0 ]]; then
-    fail "${scenario} succeeded; expected failure"
+    fail "${scenario}가 성공했지만 실패를 예상했습니다"
   fi
 
   LAST_LOG="${log_file}"
@@ -143,80 +143,80 @@ call_count() {
 }
 
 assert_no_delete() {
-  [[ "$(call_count " delete ")" == "0" ]] || fail "unexpected delete in ${LAST_LOG}"
+  [[ "$(call_count " delete ")" == "0" ]] || fail "예상하지 않은 삭제 호출: ${LAST_LOG}"
 }
 
 assert_no_success_message() {
-  ! grep -q 'autoscaling validation resources removed' "${LAST_OUTPUT}" ||
-    fail "false success message in ${LAST_OUTPUT}"
+  ! grep -q '오토스케일링 검증 리소스 정리를 완료했습니다' "${LAST_OUTPUT}" ||
+    fail "실패 상황에서 성공 메시지가 출력됐습니다: ${LAST_OUTPUT}"
 }
 
-# Kafka runner: all kubectl calls are mocked and fake Secret material is used.
+# Kafka 실행기: 모든 kubectl 호출을 모의 처리하고 가짜 Secret 값만 사용한다.
 run_case runner "${RUNNER}" success
-grep -q '^Watch:' "${LAST_OUTPUT}" || fail "runner did not print Watch guidance"
-grep -q '^Cleanup:' "${LAST_OUTPUT}" || fail "runner did not print Cleanup guidance"
-! grep -q '^diff --git ' "${RUNNER}" || fail "runner still contains the invalid diff command"
+grep -q '^관측:' "${LAST_OUTPUT}" || fail "실행기가 관측 안내를 출력하지 않았습니다"
+grep -q '^정리:' "${LAST_OUTPUT}" || fail "실행기가 정리 안내를 출력하지 않았습니다"
+! grep -q '^diff --git ' "${RUNNER}" || fail "실행기에 잘못된 diff 명령이 남아 있습니다"
 
-# Context failures must happen before any delete.
+# 컨텍스트 오류는 어떤 삭제보다 먼저 실패해야 한다.
 run_case context_mismatch "${CLEANUP}" failure
 assert_no_delete
 run_case context_failure "${CLEANUP}" failure
 assert_no_delete
 
-# Valid ownership deletes exactly the four explicit targets. Every operation
-# after current-context must pin the validated context and use finite timeouts.
+# 소유권이 정상이면 명시한 네 대상만 삭제한다. current-context 이후의 모든
+# 작업은 검증한 컨텍스트와 유한한 timeout을 사용해야 한다.
 run_case valid "${CLEANUP}" success
-[[ "$(call_count " get ")" == "4" ]] || fail "valid cleanup did not preflight four targets"
-[[ "$(call_count " delete ")" == "4" ]] || fail "valid cleanup did not issue four deletes"
+[[ "$(call_count " get ")" == "4" ]] || fail "정상 정리에서 네 대상을 모두 사전 검사하지 않았습니다"
+[[ "$(call_count " delete ")" == "4" ]] || fail "정상 정리에서 삭제 호출이 네 건이 아닙니다"
 for target in \
   'delete namespace autoscaling-validation ' \
   'delete networkpolicy -n kafka allow-autoscaling-validation ' \
   'delete kafkatopic -n kafka autoscaling-validation-20260930 ' \
   'delete kafkauser -n kafka autoscaling-validation-20260930 '; do
-  grep -Fq "${target}" "${LAST_LOG}" || fail "missing explicit delete target: ${target}"
+  grep -Fq "${target}" "${LAST_LOG}" || fail "명시한 삭제 대상이 없습니다: ${target}"
 done
 awk 'NR > 1 && $0 !~ /^--context petflow-dev / {exit 1}' "${LAST_LOG}" ||
-  fail "a post-validation kubectl call did not pin --context petflow-dev"
+  fail "검증 이후 kubectl 호출에 --context petflow-dev가 고정되지 않았습니다"
 awk '/ get / && $0 !~ /--request-timeout=15s/ {exit 1}' "${LAST_LOG}" ||
-  fail "a get call had no finite request timeout"
+  fail "조회 호출에 유한한 요청 timeout이 없습니다"
 awk '/ delete / && ($0 !~ /--request-timeout=15s/ || $0 !~ /--timeout=120s/) {exit 1}' \
-  "${LAST_LOG}" || fail "a delete call had no finite timeout"
+  "${LAST_LOG}" || fail "삭제 호출에 유한한 timeout이 없습니다"
 
-# A mismatch on the last preflight target must still result in zero deletes.
+# 마지막 사전 검사 대상의 소유권이 달라도 삭제 호출은 0건이어야 한다.
 run_case owner_mismatch "${CLEANUP}" failure
-[[ "$(call_count " get ")" == "4" ]] || fail "ownership mismatch skipped a preflight target"
+[[ "$(call_count " get ")" == "4" ]] || fail "소유권 불일치 시 사전 검사 대상이 누락됐습니다"
 assert_no_delete
 grep -q 'KafkaUser/kafka/autoscaling-validation-20260930' "${LAST_OUTPUT}" ||
-  fail "ownership failure did not identify KafkaUser"
+  fail "소유권 오류 메시지에 KafkaUser가 표시되지 않았습니다"
 assert_no_success_message
 
-# NotFound is safe; only resources that exist and are owned are deleted.
+# NotFound는 안전하게 처리하고 존재하면서 소유권이 확인된 리소스만 삭제한다.
 run_case partial_notfound "${CLEANUP}" success
-[[ "$(call_count " get ")" == "4" ]] || fail "partial NotFound skipped a preflight target"
-[[ "$(call_count " delete ")" == "2" ]] || fail "partial NotFound deleted the wrong count"
+[[ "$(call_count " get ")" == "4" ]] || fail "일부 NotFound에서 사전 검사 대상이 누락됐습니다"
+[[ "$(call_count " delete ")" == "2" ]] || fail "일부 NotFound에서 삭제 호출 수가 올바르지 않습니다"
 run_case all_notfound "${CLEANUP}" success
-[[ "$(call_count " get ")" == "4" ]] || fail "all NotFound skipped a preflight target"
+[[ "$(call_count " get ")" == "4" ]] || fail "전체 NotFound에서 사전 검사 대상이 누락됐습니다"
 assert_no_delete
 
-# Lookup and JSON failures stop before all deletion.
+# 조회 및 JSON 오류는 모든 삭제 전에 중단돼야 한다.
 for scenario in forbidden get_timeout invalid_json; do
   run_case "${scenario}" "${CLEANUP}" failure
-  [[ "$(call_count " get ")" == "4" ]] || fail "${scenario} skipped a preflight target"
+  [[ "$(call_count " get ")" == "4" ]] || fail "${scenario}에서 사전 검사 대상이 누락됐습니다"
   assert_no_delete
   assert_no_success_message
 done
 
-# Delete failures and delete timeouts are non-zero and never claim success.
+# 삭제 실패와 timeout은 0이 아닌 종료 코드로 끝나며 성공을 표시하면 안 된다.
 run_case delete_failure "${CLEANUP}" failure
-[[ "$(call_count " delete ")" == "2" ]] || fail "delete failure call sequence changed"
+[[ "$(call_count " delete ")" == "2" ]] || fail "삭제 실패 호출 순서가 변경됐습니다"
 assert_no_success_message
 grep -q 'NetworkPolicy/kafka/allow-autoscaling-validation' "${LAST_OUTPUT}" ||
-  fail "delete failure did not identify NetworkPolicy"
+  fail "삭제 실패 메시지에 NetworkPolicy가 표시되지 않았습니다"
 
 run_case delete_timeout "${CLEANUP}" failure
-[[ "$(call_count " delete ")" == "3" ]] || fail "delete timeout call sequence changed"
+[[ "$(call_count " delete ")" == "3" ]] || fail "삭제 timeout 호출 순서가 변경됐습니다"
 assert_no_success_message
 grep -q 'KafkaTopic/kafka/autoscaling-validation-20260930' "${LAST_OUTPUT}" ||
-  fail "delete timeout did not identify KafkaTopic"
+  fail "삭제 timeout 메시지에 KafkaTopic이 표시되지 않았습니다"
 
-echo "autoscaling validation script mocks: PASS"
+echo "오토스케일링 검증 스크립트 모의 테스트: 통과"

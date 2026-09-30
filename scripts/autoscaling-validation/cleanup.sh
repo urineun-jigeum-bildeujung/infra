@@ -16,12 +16,12 @@ for command in kubectl jq; do
 done
 
 if ! validated_context="$(kubectl config current-context)"; then
-  echo "ERROR: unable to read the current Kubernetes context" >&2
+  echo "오류: 현재 Kubernetes 컨텍스트를 읽을 수 없습니다" >&2
   exit 1
 fi
 
 if [[ "${validated_context}" != "${EXPECTED_CONTEXT}" ]]; then
-  echo "ERROR: refusing context ${validated_context}; expected ${EXPECTED_CONTEXT}" >&2
+  echo "오류: 현재 컨텍스트는 ${validated_context}이며 예상 컨텍스트는 ${EXPECTED_CONTEXT}입니다" >&2
   exit 1
 fi
 
@@ -37,7 +37,7 @@ preflight_resource() {
 
   if ! resource_json="$(kubectl --context "${validated_context}" get "$@" \
     --ignore-not-found -o json --request-timeout="${REQUEST_TIMEOUT}")"; then
-    echo "ERROR: failed to inspect ${display_name}" >&2
+    echo "오류: ${display_name} 조회에 실패했습니다" >&2
     preflight_failed=1
     resource_exists["${key}"]=0
     return
@@ -50,7 +50,7 @@ preflight_resource() {
 
   if ! jq -e 'type == "object" and (.metadata | type == "object")' \
     >/dev/null <<<"${resource_json}"; then
-    echo "ERROR: invalid JSON while inspecting ${display_name}" >&2
+    echo "오류: ${display_name} 조회 결과가 올바른 JSON이 아닙니다" >&2
     preflight_failed=1
     resource_exists["${key}"]=0
     return
@@ -59,7 +59,7 @@ preflight_resource() {
   owner_label="$(jq -r --arg key "${OWNER_LABEL}" \
     '.metadata.labels[$key] // ""' <<<"${resource_json}")"
   if [[ "${owner_label}" != "${OWNER_VALUE}" ]]; then
-    echo "ERROR: ${display_name} is not owned by this test; expected label ${OWNER_LABEL}=${OWNER_VALUE}" >&2
+    echo "오류: ${display_name}은 이 테스트 소유가 아닙니다. 예상 라벨: ${OWNER_LABEL}=${OWNER_VALUE}" >&2
     preflight_failed=1
     resource_exists["${key}"]=0
     return
@@ -68,8 +68,8 @@ preflight_resource() {
   resource_exists["${key}"]=1
 }
 
-# Inspect every target before deleting any target. This prevents a late
-# ownership failure from leaving a partially cleaned environment.
+# 뒤쪽 대상의 소유권 오류로 일부만 삭제되는 상황을 막기 위해 모든 대상을
+# 먼저 검사한 뒤 삭제를 시작한다.
 preflight_resource namespace "Namespace/${TEST_NAMESPACE}" \
   namespace "${TEST_NAMESPACE}"
 preflight_resource networkpolicy "NetworkPolicy/kafka/${TEST_NETWORK_POLICY}" \
@@ -80,7 +80,7 @@ preflight_resource kafkauser "KafkaUser/kafka/${TEST_KAFKA_USER}" \
   kafkauser -n kafka "${TEST_KAFKA_USER}"
 
 if ((preflight_failed != 0)); then
-  echo "ERROR: cleanup preflight failed; no resources were deleted" >&2
+  echo "오류: 정리 사전 검사가 실패했습니다. 삭제된 리소스는 없습니다" >&2
   exit 1
 fi
 
@@ -95,7 +95,7 @@ delete_resource() {
 
   if ! kubectl --context "${validated_context}" delete "$@" --wait=true \
     --timeout="${DELETE_TIMEOUT}" --request-timeout="${REQUEST_TIMEOUT}"; then
-    echo "ERROR: failed to delete ${display_name}" >&2
+    echo "오류: ${display_name} 삭제에 실패했습니다" >&2
     exit 1
   fi
 }
@@ -109,4 +109,4 @@ delete_resource topic "KafkaTopic/kafka/${TEST_TOPIC}" \
 delete_resource kafkauser "KafkaUser/kafka/${TEST_KAFKA_USER}" \
   kafkauser -n kafka "${TEST_KAFKA_USER}"
 
-echo "autoscaling validation resources removed"
+echo "오토스케일링 검증 리소스 정리를 완료했습니다"

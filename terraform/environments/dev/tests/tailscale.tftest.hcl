@@ -11,12 +11,6 @@ mock_provider "aws" {
     }
   }
 
-  mock_data "aws_ssm_parameter" {
-    defaults = {
-      value = "ami-0123456789abcdef0"
-    }
-  }
-
   mock_data "aws_iam_policy_document" {
     defaults = {
       json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}"
@@ -35,6 +29,7 @@ run "router_is_private_and_ssm_managed" {
     project_name                  = "petflow"
     environment                   = "dev"
     aws_region                    = "ap-northeast-2"
+    ami_id                        = "ami-0123456789abcdef0"
     tailscale_oauth_secret_arn    = "arn:aws:secretsmanager:ap-northeast-2:297165773875:secret:petflow/tailscale/oauth-secret-ABC123"
     vpc_id                        = "vpc-0123456789abcdef0"
     vpc_cidr                      = "10.0.0.0/20"
@@ -42,6 +37,11 @@ run "router_is_private_and_ssm_managed" {
     eks_cluster_security_group_id = "sg-0123456789abcdef0"
     instance_type                 = "t3.micro"
     root_volume_size              = 8
+  }
+
+  assert {
+    condition     = aws_instance.router.ami == "ami-0123456789abcdef0"
+    error_message = "Router는 상위 환경에서 명시적으로 고정한 AMI를 사용해야 합니다."
   }
 
   assert {
@@ -175,6 +175,7 @@ run "reject_too_small_root_volume" {
     project_name                  = "petflow"
     environment                   = "dev"
     aws_region                    = "ap-northeast-2"
+    ami_id                        = "ami-0123456789abcdef0"
     tailscale_oauth_secret_arn    = "arn:aws:secretsmanager:ap-northeast-2:297165773875:secret:petflow/tailscale/oauth-secret-ABC123"
     vpc_id                        = "vpc-0123456789abcdef0"
     vpc_cidr                      = "10.0.0.0/20"
@@ -197,6 +198,7 @@ run "reject_wildcard_secret_arn" {
     project_name                  = "petflow"
     environment                   = "dev"
     aws_region                    = "ap-northeast-2"
+    ami_id                        = "ami-0123456789abcdef0"
     tailscale_oauth_secret_arn    = "arn:aws:secretsmanager:ap-northeast-2:297165773875:secret:*"
     vpc_id                        = "vpc-0123456789abcdef0"
     vpc_cidr                      = "10.0.0.0/20"

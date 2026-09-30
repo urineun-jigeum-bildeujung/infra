@@ -13,6 +13,19 @@ variable "aws_region" {
   type        = string
 }
 
+variable "ami_id" {
+  description = "검토 후 명시적으로 고정한 Tailscale Router용 Amazon Linux 2023 AMI ID"
+  type        = string
+  # 기존 SSM Parameter data source가 sensitive로 상태에 기록한 메타데이터를 유지해
+  # AMI 값이 같을 때 불필요한 in-place state 변경이 생기지 않게 한다.
+  sensitive = true
+
+  validation {
+    condition     = can(regex("^ami-[0-9a-f]+$", var.ami_id))
+    error_message = "ami_id는 유효한 EC2 AMI ID 형식이어야 합니다."
+  }
+}
+
 variable "tailscale_oauth_secret_arn" {
   description = "Tailscale Router 자동 인증용 Secrets Manager Secret ARN"
   type        = string

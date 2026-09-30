@@ -74,6 +74,16 @@ variable "tailscale_instance_type" {
   }
 }
 
+variable "tailscale_ami_id" {
+  description = "검토 후 명시적으로 고정한 DEV Tailscale Router용 Amazon Linux 2023 AMI ID"
+  type        = string
+
+  validation {
+    condition     = can(regex("^ami-[0-9a-f]+$", var.tailscale_ami_id))
+    error_message = "tailscale_ami_id는 유효한 EC2 AMI ID 형식이어야 합니다."
+  }
+}
+
 variable "tailscale_oauth_secret_arn" {
   description = "Tailscale Router 자동 인증용 Secrets Manager Secret ARN"
   type        = string

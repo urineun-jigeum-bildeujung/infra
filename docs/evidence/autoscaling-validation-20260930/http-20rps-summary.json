@@ -1,0 +1,163 @@
+{
+    "metrics": {
+        "guard_successful": {
+            "passes": 3600,
+            "fails": 0,
+            "value": 1
+        },
+        "data_received": {
+            "count": 6558045,
+            "rate": 36433.453730430054
+        },
+        "http_req_tls_handshaking": {
+            "avg": 0.1621146847222222,
+            "min": 0,
+            "med": 0,
+            "max": 39.89252,
+            "p(90)": 0,
+            "p(95)": 0
+        },
+        "checks": {
+            "passes": 3600,
+            "fails": 0,
+            "value": 1
+        },
+        "data_sent": {
+            "count": 239460,
+            "rate": 1330.3286010219174
+        },
+        "guard_unexpected_404": {
+            "count": 0,
+            "rate": 0,
+            "thresholds": {
+                "count<3": false
+            }
+        },
+        "http_req_duration{expected_response:true}": {
+            "med": 21.987779500000002,
+            "max": 258.638629,
+            "p(90)": 28.5943573,
+            "p(95)": 34.00790604999998,
+            "avg": 22.439969295833336,
+            "min": 11.216296
+        },
+        "guard_errors": {
+            "count": 0,
+            "rate": 0,
+            "thresholds": {
+                "count<3": false
+            }
+        },
+        "http_req_connecting": {
+            "min": 0,
+            "med": 0,
+            "max": 20.984174,
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0.061444696111111106
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 3600,
+            "value": 0
+        },
+        "http_reqs": {
+            "count": 3600,
+            "rate": 19.99992885525308
+        },
+        "http_req_receiving": {
+            "p(90)": 0.20681649999999993,
+            "p(95)": 1.0679442499999865,
+            "avg": 0.588971694722225,
+            "min": 0.024951,
+            "med": 0.0698445,
+            "max": 217.784015
+        },
+        "http_req_sending": {
+            "p(90)": 0.2309878,
+            "p(95)": 0.3031799999999998,
+            "avg": 0.17628748305555506,
+            "min": 0.045302,
+            "med": 0.161607,
+            "max": 1.984919
+        },
+        "iteration_duration": {
+            "avg": 22.961745515555553,
+            "min": 11.413809,
+            "med": 22.222594,
+            "max": 258.877086,
+            "p(90)": 28.903137899999997,
+            "p(95)": 34.869381999999995
+        },
+        "vus_max": {
+            "value": 20,
+            "min": 20,
+            "max": 20
+        },
+        "dropped_iterations": {
+            "count": 0,
+            "rate": 0,
+            "thresholds": {
+                "count==0": false
+            }
+        },
+        "http_req_blocked": {
+            "avg": 0.2742239997222271,
+            "min": 0.000182,
+            "med": 0.000226,
+            "max": 153.699314,
+            "p(90)": 0.000364,
+            "p(95)": 0.0005100499999999997
+        },
+        "http_req_waiting": {
+            "max": 258.418045,
+            "p(90)": 25.897722799999997,
+            "p(95)": 31.9904956,
+            "avg": 21.674710118055618,
+            "min": 11.017234,
+            "med": 21.640799
+        },
+        "vus": {
+            "value": 0,
+            "min": 0,
+            "max": 1
+        },
+        "http_req_duration": {
+            "avg": 22.439969295833336,
+            "min": 11.216296,
+            "med": 21.987779500000002,
+            "max": 258.638629,
+            "p(90)": 28.5943573,
+            "p(95)": 34.00790604999998,
+            "thresholds": {
+                "p(95)<1000": false
+            }
+        },
+        "iterations": {
+            "count": 3600,
+            "rate": 19.99992885525308
+        },
+        "guard_auth_errors": {
+            "count": 0,
+            "rate": 0,
+            "thresholds": {
+                "count<3": false
+            }
+        }
+    },
+    "root_group": {
+        "groups": {},
+        "checks": {
+                "HTTP 200": {
+                    "fails": 0,
+                    "name": "HTTP 200",
+                    "path": "::HTTP 200",
+                    "id": "b70aee8a9f7a77d66dd70844a901558a",
+                    "passes": 3600
+                }
+            },
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e"
+    }
+}

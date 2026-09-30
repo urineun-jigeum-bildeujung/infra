@@ -1,0 +1,58 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: autoscaling-validation
+  labels:
+    app.kubernetes.io/part-of: autoscaling-validation
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: autoscaling-validation-20260930
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: pet-subscription-kafka
+    app.kubernetes.io/part-of: autoscaling-validation
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    retention.ms: 3600000
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: autoscaling-validation-20260930
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: pet-subscription-kafka
+    app.kubernetes.io/part-of: autoscaling-validation
+spec:
+  authentication:
+    type: scram-sha-512
+---
+# NetworkPolicies are additive. This permits only the temporary namespace to
+# reach the TLS listener without changing or rolling the shared Kafka CR.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-autoscaling-validation
+  namespace: kafka
+  labels:
+    app.kubernetes.io/part-of: autoscaling-validation
+spec:
+  podSelector:
+    matchLabels:
+      strimzi.io/cluster: pet-subscription-kafka
+      strimzi.io/name: pet-subscription-kafka-kafka
+      strimzi.io/broker-role: "true"
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: autoscaling-validation
+      ports:
+        - protocol: TCP
+          port: 9093

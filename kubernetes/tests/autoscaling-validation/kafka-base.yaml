@@ -31,8 +31,8 @@ spec:
   authentication:
     type: scram-sha-512
 ---
-# NetworkPolicies are additive. This permits only the temporary namespace to
-# reach the TLS listener without changing or rolling the shared Kafka CR.
+# NetworkPolicy는 허용 규칙이 합산된다. 공유 Kafka CR을 변경하거나 재기동하지 않고
+# 임시 테스트 namespace만 TLS listener에 접근하도록 허용한다.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

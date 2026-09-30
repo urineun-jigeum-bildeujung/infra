@@ -14,15 +14,15 @@ done
 
 actual_context="$(kubectl config current-context)"
 if [[ "${actual_context}" != "${EXPECTED_CONTEXT}" ]]; then
-  echo "Refusing context ${actual_context}; expected ${EXPECTED_CONTEXT}" >&2
+  echo "오류: 현재 컨텍스트는 ${actual_context}이며 예상 컨텍스트는 ${EXPECTED_CONTEXT}입니다" >&2
   exit 1
 fi
 
 authorization="$(kubectl get kafka -n kafka pet-subscription-kafka \
   -o jsonpath='{.spec.kafka.authorization}')"
 if [[ -z "${authorization}" ]]; then
-  echo "WARNING: Kafka authorization is disabled; the dedicated SCRAM user"
-  echo "cannot be restricted with broker-enforced ACLs in this environment."
+  echo "경고: Kafka authorization이 비활성 상태입니다."
+  echo "이 환경에서는 전용 SCRAM 사용자의 권한을 broker ACL로 제한할 수 없습니다."
 fi
 
 kubectl apply -f "${BASE_MANIFEST}"
@@ -31,7 +31,7 @@ kubectl wait -n kafka --for=condition=Ready \
 kubectl wait -n kafka --for=condition=Ready \
   kafkauser/autoscaling-validation-20260930 --timeout=120s
 
-# Build the namespace-local secret without printing credential material.
+# 자격증명을 출력하지 않고 테스트 namespace 내부 Secret을 구성한다.
 jq -s '.[0] as $user | .[1] as $ca |
   {apiVersion:"v1",kind:"Secret",
    metadata:{name:"kafka-credentials",namespace:"autoscaling-validation",
@@ -48,5 +48,5 @@ kubectl delete job -n "${TEST_NAMESPACE}" produce-300 \
   --ignore-not-found --wait=true
 kubectl apply -f "${WORKLOAD_MANIFEST}"
 
-echo "Watch: kubectl get pods,hpa,scaledobject -n ${TEST_NAMESPACE} -w"
-echo "Cleanup: ${ROOT_DIR}/scripts/autoscaling-validation/cleanup.sh"
+echo "관측: kubectl get pods,hpa,scaledobject -n ${TEST_NAMESPACE} -w"
+echo "정리: ${ROOT_DIR}/scripts/autoscaling-validation/cleanup.sh"

@@ -14,7 +14,7 @@ run_stage() {
   local rate="$1"
   local duration="$2"
 
-  echo "Starting ${rate} RPS for ${duration}"
+  echo "${rate} RPS 부하를 ${duration} 동안 시작합니다"
   env \
     BASE_URL="${BASE_URL}" \
     RATE="${rate}" \
@@ -24,8 +24,8 @@ run_stage() {
       "${LOAD_SCRIPT}"
 }
 
-# Total active duration is 8 minutes without the optional stage and exactly
-# 11 minutes with it. The k6 script caps concurrency at 20 and has no retries.
+# 선택 단계를 제외하면 전체 활성 시간은 8분, 포함하면 정확히 11분이다.
+# k6 스크립트는 동시성을 20으로 제한하고 재시도하지 않는다.
 run_stage 1 2m
 run_stage 5 3m
 run_stage 10 3m
@@ -34,6 +34,6 @@ if [[ "${RUN_20_RPS}" == "true" ]]; then
   run_stage 20 3m
 fi
 
-echo "HTTP evidence written to ${OUTPUT_DIR}"
-echo "The operator must also watch DB connections, pod availability, HPA,"
-echo "business lag, and NodeClaims; stop immediately on the runbook guards."
+echo "HTTP 증적 저장 위치: ${OUTPUT_DIR}"
+echo "DB 연결, Pod 가용성, HPA, 업무 lag, NodeClaim도 함께 관측해야 합니다."
+echo "실행 지시서의 중단 조건이 발생하면 즉시 중단하세요."

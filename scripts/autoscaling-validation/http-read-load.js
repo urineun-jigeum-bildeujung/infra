@@ -53,7 +53,7 @@ export default function () {
     tags: { endpoint: listRequest ? 'list' : 'detail' },
   });
 
-  const ok = check(response, { 'HTTP 200': (res) => res.status === 200 });
+  const ok = check(response, { 'HTTP 200 응답': (res) => res.status === 200 });
   successful.add(ok);
   if (ok) {
     consecutiveFailures = 0;
@@ -65,6 +65,6 @@ export default function () {
   if ([401, 403, 429].includes(response.status)) authErrors.add(1);
   if (response.status === 404) unexpectedNotFound.add(1);
   if (consecutiveFailures >= 3) {
-    exec.test.abort(`three consecutive failures in VU ${exec.vu.idInTest}`);
+    exec.test.abort(`VU ${exec.vu.idInTest}에서 3회 연속 실패`);
   }
 }

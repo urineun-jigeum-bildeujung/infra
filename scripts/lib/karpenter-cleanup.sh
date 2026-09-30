@@ -81,14 +81,14 @@ karpenter_get_owned_instances_json() {
   local aws_region="$2"
   local result
 
-  # 두 태그를 모두 요구해 MNG와 다른 클러스터의 EC2를 제외한다. terminated는
-  # 종료 완료로 간주하므로 조회 대상에서 제외한다.
+  # 두 태그를 모두 요구해 MNG와 다른 클러스터의 EC2를 제외한다. terminated도
+  # 소유권 교차검증에는 사용하되 종료 대기 개수에서는 호출자가 제외한다.
   if ! result="$(karpenter_aws ec2 describe-instances \
     --region "${aws_region}" \
     --filters \
       "Name=tag:kubernetes.io/cluster/${cluster_name},Values=owned" \
       "Name=tag-key,Values=karpenter.sh/nodepool" \
-      "Name=instance-state-name,Values=pending,running,shutting-down,stopping,stopped" \
+      "Name=instance-state-name,Values=pending,running,shutting-down,stopping,stopped,terminated" \
     --query 'Reservations[].Instances[].{InstanceId:InstanceId,State:State.Name,Tags:Tags}' \
     --output json)"; then
     karpenter_cleanup_error "${cluster_name} 소유 Karpenter EC2 조회에 실패했습니다. 인스턴스 0개로 취급하지 않습니다."
@@ -169,6 +169,7 @@ cleanup_karpenter_nodes() {
   local nodepool_crd=false
   local nodeclaims_json='{"items":[]}'
   local nodepools_json='{"items":[]}'
+  local owned_all_instances_json
   local owned_instances_json
   local nodeclaim_count
   local nodepool_count
@@ -180,6 +181,7 @@ cleanup_karpenter_nodes() {
   local attempt
   local max_attempts
   local -a claim_instance_ids=()
+  local -a owned_all_instance_ids=()
   local -a owned_instance_ids=()
 
   if [[ ! "${timeout_seconds}" =~ ^[1-9][0-9]*$ || ! "${poll_seconds}" =~ ^[1-9][0-9]*$ ]]; then
@@ -206,7 +208,8 @@ cleanup_karpenter_nodes() {
     return 1
   fi
 
-  owned_instances_json="$(karpenter_get_owned_instances_json "${cluster_name}" "${aws_region}")" || return 1
+  owned_all_instances_json="$(karpenter_get_owned_instances_json "${cluster_name}" "${aws_region}")" || return 1
+  owned_instances_json="$(jq '[.[] | select(.State != "terminated")]' <<< "${owned_all_instances_json}")"
   nodeclaim_count="$(jq '.items | length' <<< "${nodeclaims_json}")"
   nodepool_count="$(jq '.items | length' <<< "${nodepools_json}")"
   owned_count="$(jq 'length' <<< "${owned_instances_json}")"
@@ -215,6 +218,7 @@ cleanup_karpenter_nodes() {
   if [[ -n "${claim_instance_lines}" ]]; then
     mapfile -t claim_instance_ids <<< "${claim_instance_lines}"
   fi
+  mapfile -t owned_all_instance_ids < <(jq -r '.[].InstanceId' <<< "${owned_all_instances_json}")
   mapfile -t owned_instance_ids < <(jq -r '.[].InstanceId' <<< "${owned_instances_json}")
 
   karpenter_cleanup_log "Karpenter 정리 대상: NodePool=${nodepool_count}, NodeClaim=${nodeclaim_count}, EC2=${owned_count}"
@@ -225,10 +229,11 @@ cleanup_karpenter_nodes() {
   fi
 
   # NodeClaim에 연결된 인스턴스는 반드시 대상 클러스터 owned 태그와 NodePool 태그를
-  # 모두 가져야 한다. 반대로 태그 대상 EC2에 NodeClaim이 없으면 고아 인스턴스이므로
-  # 자동 terminate하지 않고 중단한다.
+  # 모두 가져야 한다. 이미 terminated 상태면 정상 정리된 것으로 허용한다. 반대로
+  # 아직 종료되지 않은 태그 대상 EC2에 NodeClaim이 없으면 고아 인스턴스이므로 자동
+  # terminate하지 않고 중단한다.
   for claim_id in "${claim_instance_ids[@]}"; do
-    if ! karpenter_array_contains "${claim_id}" "${owned_instance_ids[@]}"; then
+    if ! karpenter_array_contains "${claim_id}" "${owned_all_instance_ids[@]}"; then
       karpenter_cleanup_error "NodeClaim EC2의 클러스터 소유권을 확인할 수 없습니다: ${claim_id}"
       return 1
     fi
@@ -259,7 +264,8 @@ cleanup_karpenter_nodes() {
     else
       nodeclaims_json='{"items":[]}'
     fi
-    owned_instances_json="$(karpenter_get_owned_instances_json "${cluster_name}" "${aws_region}")" || return 1
+    owned_all_instances_json="$(karpenter_get_owned_instances_json "${cluster_name}" "${aws_region}")" || return 1
+    owned_instances_json="$(jq '[.[] | select(.State != "terminated")]' <<< "${owned_all_instances_json}")"
     nodeclaim_count="$(jq '.items | length' <<< "${nodeclaims_json}")"
     owned_count="$(jq 'length' <<< "${owned_instances_json}")"
 

@@ -14,6 +14,7 @@
 #   | Karpenter                    | kube-system | karpenter                    |
 #   | Jenkins Kaniko                | jenkins     | jenkins-kaniko               |
 #   | External Secrets Operator    | external-secrets | external-secrets        |
+#   | Trivy Operator                | trivy-system | trivy-operator              |
 #
 # 관리 대상 (DEV 생명주기 — destroy/apply 반복 가능):
 #   - ALB Controller: Role + 공식 Policy + Pod Identity Association
@@ -22,6 +23,9 @@
 #     + EKS Access Entry (EC2_LINUX) — API 인증 모드에서 노드가 클러스터에 join 하기 위해 필수
 #   - Jenkins Kaniko: ECR Push/Pull 최소 권한 Role + Policy + Pod Identity Association
 #   - External Secrets Operator: Secrets Manager 읽기 Role + Policy + Pod Identity Association
+#   - Trivy Operator: ECR Pull-only 최소 권한 Role + Policy + Pod Identity Association
+#     (지금까지 이 Role 이 없어서 petflow 자체 이미지 취약점 스캔이 전부 401로 실패하고
+#     있었음 — 재시도만 반복되며 NAT 트래픽만 낭비. 이번에 신설)
 #
 # 이번 범위에서 제외:
 #   - Karpenter Interruption Queue (SQS) — Spot 중단 대응이 필요해지면 추가
@@ -324,4 +328,66 @@ resource "aws_eks_pod_identity_association" "external_secrets" {
   namespace       = "external-secrets"
   service_account = "external-secrets"
   role_arn        = aws_iam_role.external_secrets.arn
+}
+
+# =============================================================================
+# Trivy Operator — ECR Pull-only Role
+# =============================================================================
+# Trivy Operator 의 스캔 Job 은 kubelet 이 아니라 별도 Pod 로 떠서 이미지를 직접
+# Pull 하기 때문에, 워커 노드의 IAM Role(kubelet 용)과는 별개로 자체 ECR 인증이
+# 필요하다. 지금까지 이 Role 자체가 없어서(ServiceAccount 에 아무 Pod Identity 도
+# 안 붙어 있었음) petflow/* 이미지 스캔이 전부 401 Unauthorized 로 실패하고,
+# Standalone 모드의 재시도 로직(OPERATOR_SCAN_JOB_RETRY_AFTER)이 계속 반복
+# 호출하면서 NAT 트래픽만 낭비하고 있었다 — 취약점 스캔 자체는 한 번도 성공한
+# 적이 없는 상태였음.
+#
+# 이미지를 Push 할 일은 없으므로 Pull 권한만 부여한다. 다른 서비스처럼
+# repository ARN을 이 프로젝트(petflow/*)로 제한한다 — 이 Role 로는 EKS 관리형
+# 애드온 이미지(602401143452 계정의 kube-proxy 등)는 원래도 못 읽는다(크로스
+# 계정이라 이 정책 범위 밖) — 그건 gitops 쪽에서 스캔 대상 자체를 제외한다.
+resource "aws_iam_role" "trivy_operator" {
+  name               = "${local.name_prefix}-trivy-operator"
+  description        = "Read-only role for Trivy Operator to pull project ECR images for scanning"
+  assume_role_policy = data.aws_iam_policy_document.pod_identity_trust.json
+}
+
+data "aws_iam_policy_document" "trivy_operator_ecr" {
+  # ECR 인증 토큰은 Repository ARN 단위 제한을 지원하지 않는다.
+  statement {
+    sid       = "GetECRAuthorizationToken"
+    effect    = "Allow"
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "PullPetflowRepositories"
+    effect = "Allow"
+    actions = [
+      "ecr:BatchCheckLayerAvailability",
+      "ecr:GetDownloadUrlForLayer",
+      "ecr:BatchGetImage",
+    ]
+    resources = [
+      "arn:aws:ecr:${var.aws_region}:${data.aws_caller_identity.current.account_id}:repository/${var.project_name}/*",
+    ]
+  }
+}
+
+resource "aws_iam_policy" "trivy_operator_ecr" {
+  name        = "${local.name_prefix}-trivy-operator-ecr"
+  description = "Read-only access for Trivy Operator to pull project ECR images"
+  policy      = data.aws_iam_policy_document.trivy_operator_ecr.json
+}
+
+resource "aws_iam_role_policy_attachment" "trivy_operator_ecr" {
+  role       = aws_iam_role.trivy_operator.name
+  policy_arn = aws_iam_policy.trivy_operator_ecr.arn
+}
+
+resource "aws_eks_pod_identity_association" "trivy_operator" {
+  cluster_name    = var.cluster_name
+  namespace       = "trivy-system"
+  service_account = "trivy-operator"
+  role_arn        = aws_iam_role.trivy_operator.arn
 }

@@ -28,15 +28,25 @@ class RestoreFlowTests(unittest.TestCase):
                 "backupName": "backup-previous",
                 "completedAt": "2026-09-20T00:00:00Z",
             }))
+            if mode in ("pinned", "pinned-broken"):
+                marker.write_text(json.dumps({"schemaVersion": 2,
+                    "destinationPath": "s3://petflow-dev-db-backups/cnpg/previous",
+                    "serverName": "petflow-db", "backupID": "20260930T000000",
+                    "targetName": "petflow_test_run", "baseInfoKey": "cnpg/previous/petflow-db/base/20260930T000000/backup.info",
+                    "walKey": "cnpg/previous/petflow-db/wals/0000000100000000/000000010000000000000001.gz", "walVersionId": "fixed"}))
             (bin_dir / "aws").write_text("""#!/usr/bin/env python3
 import os, sys, shutil
 a = sys.argv[1:]
+if a[:2] == ['s3api', 'head-object']:
+    sys.exit(1 if os.environ['TEST_MODE'] == 'pinned-broken' else 0)
 if a[:2] == ['s3api', 'get-object']:
     shutil.copyfile(os.environ['TEST_MARKER'], a[-1]); sys.exit(0)
 if a[:2] != ['s3api', 'list-objects-v2']:
     sys.exit(2)
 prefix = a[a.index('--prefix') + 1]
 mode = os.environ['TEST_MODE']
+if mode.startswith('pinned') and prefix == 'cnpg/recovery/latest.json':
+    sys.exit(9)  # A fixed recovery source must never query the mutable latest marker.
 if prefix == 'cnpg/recovery/latest.json':
     print(prefix if mode not in ('initdb', 'orphan') else 'None')
 elif prefix.startswith('cnpg/generations/'):
@@ -81,6 +91,9 @@ sys.exit(4)
                        TEST_CAPTURE=str(captured), CNPG_BACKUP_SCRIPT=str(backup),
                        TEST_STORE_CAPTURE=str(store_capture),
                        KUBECONFIG=str(root / "kubeconfig"))
+            env.pop("PETFLOW_CNPG_PINNED_SOURCE", None)
+            if mode.startswith("pinned"):
+                env["PETFLOW_CNPG_PINNED_SOURCE"] = str(marker)
             result = subprocess.run([str(SCRIPT)], env=env, universal_newlines=True,
                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                     check=False)
@@ -121,6 +134,17 @@ sys.exit(4)
         self.assertIsNone(document)
         self.assertIsNone(store)
         self.assertIn("marker 없이 이전 세대 데이터", result.stderr)
+
+    def test_pinned_source_uses_exact_base_and_named_restore_point(self):
+        result, document, store = self.run_flow("pinned")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(document["spec"]["bootstrap"]["recovery"]["recoveryTarget"],
+                         {"backupID": "20260930T000000", "targetName": "petflow_test_run"})
+
+    def test_missing_pinned_object_never_initializes(self):
+        result, document, store = self.run_flow("pinned-broken")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIsNone(document)
 
 
 if __name__ == "__main__":

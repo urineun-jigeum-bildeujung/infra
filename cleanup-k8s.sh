@@ -555,6 +555,11 @@ track_persistent_storage
 
 echo "[3/11] 이번 Destroy 실행의 CNPG EBS Backup Manifest 재검증"
 verify_cnpg_backup_evidence "pre-kubernetes-cleanup"
+[[ -n "${PETFLOW_STATEFUL_BACKUP_MANIFEST:-}" ]] || {
+  echo '[cleanup-k8s] CNPG/Redis/Kafka 통합 백업 manifest가 필요합니다.' >&2; exit 1;
+}
+python3 "${SCRIPT_DIR}/scripts/stateful/control.py" begin-cleanup \
+  --manifest "${PETFLOW_STATEFUL_BACKUP_MANIFEST}"
 
 echo "[4/11] Argo CD 동기화 중지"
 if "${KUBECTL[@]}" get statefulset argocd-application-controller --namespace argocd >/dev/null 2>&1; then
@@ -613,6 +618,8 @@ cleanup_karpenter_nodes "${cluster_name}" "${aws_region}"
 
 echo "[11/11] CNPG EBS Backup 사후 Guard"
 verify_cnpg_backup_evidence "post-pvc-cleanup"
+python3 "${SCRIPT_DIR}/scripts/stateful/control.py" verify \
+  --manifest "${PETFLOW_STATEFUL_BACKUP_MANIFEST}"
 
 echo "======================================"
 echo " Kubernetes Cleanup Completed"

@@ -730,8 +730,8 @@ if ! wait_for_metrics_server "${cluster_name}" "${aws_region}"; then
   fail "Metrics Server가 제한 시간 내 ACTIVE/Available 상태가 되지 않았습니다."
 fi
 
-log "[5/18] CNPG 백업 복원 또는 최초 initdb, 새 WAL 경로 및 base backup 검증"
-GITOPS_DIR="${GITOPS_DIR}" "${SCRIPT_DIR}/scripts/restore-cnpg-before-gitops.sh"
+log "[5/18] CNPG/장바구니/Kafka 복원 검증 (서비스 배포 전)"
+GITOPS_DIR="${GITOPS_DIR}" bash "${SCRIPT_DIR}/scripts/stateful-restore.sh"
 
 log "[6/18] Jenkins 필수 Secret 준비와 키 검증"
 prepare_jenkins_credentials

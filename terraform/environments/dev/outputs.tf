@@ -305,6 +305,21 @@ output "cnpg_ebs_backup_role_arn" {
   value       = module.ebs_backup.backup_role_arn
 }
 
+# 같은 Vault/Role을 재사용한다. Kafka는 일일 CNPG 태그 선택에 넣지 않고,
+# 정상 종료를 확인한 stateful-backup.sh에서만 온디맨드 백업한다.
+output "stateful_backup_configuration" {
+  description = "CNPG/Redis cart/Kafka cohort backup contract; no new vault or role"
+  value = {
+    bucket             = module.s3.bucket_names["db-backups"]
+    manifest_prefix    = "recovery/runs"
+    complete_marker    = "recovery/latest-complete.json"
+    redis_key_pattern  = "cart:*"
+    redis_database     = 0
+    kafka_backup_vault = module.ebs_backup.backup_vault_name
+    backup_role_arn    = module.ebs_backup.backup_role_arn
+  }
+}
+
 output "cnpg_ebs_backup_tag" {
   description = "GitOps gp3-cnpg StorageClass와 일치해야 하는 EBS 선택 태그"
   value       = module.ebs_backup.backup_tag

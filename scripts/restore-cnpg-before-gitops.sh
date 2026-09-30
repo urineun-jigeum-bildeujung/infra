@@ -13,6 +13,7 @@ MARKER=cnpg/recovery/latest.json
 IMAGE=297165773875.dkr.ecr.ap-northeast-2.amazonaws.com/petflow/postgresql-pg-bigm:17.11-pg-bigm-1.2-20250903
 PLUGIN=barman-cloud.cloudnative-pg.io
 BACKUP_SCRIPT="${CNPG_BACKUP_SCRIPT:-${SCRIPT_DIR}/cnpg-s3-backup.sh}"
+PINNED_SOURCE="${PETFLOW_CNPG_PINNED_SOURCE:-}"
 
 fail() { printf '[cnpg-restore] ERROR: %s\n' "$*" >&2; exit 1; }
 log() { printf '[cnpg-restore] %s\n' "$*"; }
@@ -44,6 +45,18 @@ helm upgrade --install plugin-barman-cloud cnpg/plugin-barman-cloud --version 0.
   --namespace cnpg-system --wait --timeout 10m
 
 source_path=''
+if [[ -n "${PINNED_SOURCE}" ]]; then
+  marker_file="${PINNED_SOURCE}"
+  jq -e '.schemaVersion == 2 and .serverName == "petflow-db" and
+    (.backupID | test("^[0-9]{8}T[0-9]{6}$")) and
+    (.targetName | test("^petflow_[a-zA-Z0-9_]{1,48}$"))' "${marker_file}" >/dev/null \
+    || fail '고정 복원 manifest 형식이 잘못되었습니다.'
+  source_path="$(jq -r '.destinationPath' "${marker_file}")"
+  [[ "${source_path}" =~ ^s3://petflow-dev-db-backups/cnpg(/[a-zA-Z0-9/_-]+)?$ ]] || fail '잘못된 복원 경로'
+  aws s3api head-object --bucket "${BUCKET}" --key "$(jq -r .baseInfoKey "${marker_file}")" >/dev/null
+  aws s3api head-object --bucket "${BUCKET}" --key "$(jq -r .walKey "${marker_file}")" \
+    --version-id "$(jq -r .walVersionId "${marker_file}")" >/dev/null
+else
 marker_key="$(aws s3api list-objects-v2 --bucket "${BUCKET}" --prefix "${MARKER}" \
   --max-keys 1 --query 'Contents[0].Key' --output text)" \
   || fail 'S3 복원 지점 목록을 읽지 못했습니다.'
@@ -79,6 +92,7 @@ else
   [[ "${legacy_base}" == 0 ]] || fail '기존 base backup이 있으나 marker가 없습니다. 자동 initdb를 중단합니다.'
   log '복원 가능한 백업이 없습니다. 최초 initdb를 수행합니다.'
 fi
+fi
 
 generation="$(date -u +%Y%m%dT%H%M%SZ)-$(cat /proc/sys/kernel/random/uuid)"
 destination="s3://${BUCKET}/cnpg/generations/${generation}"
@@ -90,7 +104,7 @@ log "새 backup/WAL 세대: ${destination}"
 
 objectstore_file="$(mktemp /tmp/petflow-cnpg-objectstore.XXXXXX)"
 cluster_file="$(mktemp /tmp/petflow-cnpg-cluster.XXXXXX)"
-trap 'rm -f "${marker_file:-}" "${objectstore_file}" "${cluster_file}"' EXIT
+trap '[[ -n "${PINNED_SOURCE}" ]] || rm -f "${marker_file:-}"; rm -f "${objectstore_file}" "${cluster_file}"' EXIT
 jq -n --arg path "${destination}" '{
   apiVersion:"barmancloud.cnpg.io/v1",kind:"ObjectStore",
   metadata:{name:"petflow-db-backups",namespace:"database"},
@@ -107,6 +121,9 @@ if [[ -n "${source_path}" ]]; then
     spec:{configuration:{destinationPath:$path,s3Credentials:{inheritFromIAMRole:true}}}
   }' | "${K[@]}" apply -f -
   bootstrap="$(jq -n '{recovery:{source:"previous-generation"}}')"
+  if [[ -n "${PINNED_SOURCE}" ]]; then
+    bootstrap="$(jq '{recovery:{source:"previous-generation",recoveryTarget:{backupID:.backupID,targetName:.targetName}}}' "${PINNED_SOURCE}")"
+  fi
   external="$(jq -n --arg plugin "${PLUGIN}" '[{name:"previous-generation",
     plugin:{name:$plugin,parameters:{barmanObjectName:"petflow-db-restore-source",
       serverName:"petflow-db"}}}]')"

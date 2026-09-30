@@ -19,7 +19,7 @@ data "aws_iam_policy_document" "backup_assume_role" {
 
 resource "aws_iam_role" "backup" {
   name               = "${local.resource_prefix}-backup"
-  description        = "AWS Backup service role for tagged CNPG EBS volumes"
+  description        = "AWS Backup role for CNPG EBS and quiesced Kafka EBS backup/restore"
   assume_role_policy = data.aws_iam_policy_document.backup_assume_role.json
 }
 

@@ -126,6 +126,10 @@ if [[ "${eks_exists}" == "true" ]]; then
     --manifest "${CNPG_BACKUP_MANIFEST}" \
     --phase "pre-terraform-destroy"
   backup_guard_verified=true
+  [[ -n "${PETFLOW_STATEFUL_BACKUP_MANIFEST:-}" ]] || {
+    echo '[tdestroy] 통합 백업 manifest 없이 Terraform 삭제를 진행할 수 없습니다.' >&2; exit 1;
+  }
+  python3 "${SCRIPT_DIR}/stateful/control.py" verify --manifest "${PETFLOW_STATEFUL_BACKUP_MANIFEST}"
 fi
 
 if [[ -n "${vpc_id}" && -n "${aws_region}" ]]; then
@@ -163,6 +167,7 @@ terraform destroy --auto-approve -input=false "${destroy_targets[@]}"
 if [[ "${backup_guard_verified}" == "true" ]]; then
   echo "[tdestroy] Terraform Destroy 직후 CNPG Backup Guard"
   bash "${CNPG_BACKUP_GUARD}" verify --region "${aws_region:-${EXPECTED_AWS_REGION}}" --vault "${CNPG_BACKUP_VAULT_NAME}" --manifest "${CNPG_BACKUP_MANIFEST}" --phase "post-terraform-destroy"
+  python3 "${SCRIPT_DIR}/stateful/control.py" verify --manifest "${PETFLOW_STATEFUL_BACKUP_MANIFEST}"
 fi
 
 if [[ -n "${aws_region}" ]]; then

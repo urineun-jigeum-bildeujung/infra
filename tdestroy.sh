@@ -14,7 +14,7 @@ fail() {
   exit 1
 }
 
-for command_name in aws terraform kubectl jq flock; do
+for command_name in aws terraform kubectl jq flock python3 helm; do
   command -v "${command_name}" >/dev/null 2>&1 \
     || fail "${command_name} 명령이 필요합니다."
 done
@@ -33,6 +33,7 @@ export AWS_REGION="${aws_region}"
 export PETFLOW_DESTROY_RUN_ID="${PETFLOW_DESTROY_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
 export PETFLOW_DESTROY_EVIDENCE_DIR="${PETFLOW_DESTROY_EVIDENCE_DIR:-${SCRIPT_DIR}/.destroy-evidence}"
 export PETFLOW_CNPG_BACKUP_MANIFEST="${PETFLOW_CNPG_BACKUP_MANIFEST:-${PETFLOW_DESTROY_EVIDENCE_DIR}/${PETFLOW_DESTROY_RUN_ID}-cnpg-backups.json}"
+export PETFLOW_STATEFUL_BACKUP_MANIFEST="${PETFLOW_DESTROY_EVIDENCE_DIR}/${PETFLOW_DESTROY_RUN_ID}-stateful.json"
 
 eks_exists=true
 eks_describe_error="$(mktemp /tmp/petflow-tdestroy-eks.XXXXXX)"
@@ -60,11 +61,10 @@ if [[ "${eks_exists}" == "true" ]]; then
   trap 'rm -f "${cnpg_temp_kubeconfig}"' EXIT
   aws eks update-kubeconfig --name "${EXPECTED_EKS_CLUSTER_NAME}" \
     --region "${aws_region}" --kubeconfig "${cnpg_temp_kubeconfig}" >/dev/null
-  echo "[1/4] CNPG base backup과 WAL을 S3에 저장하고 복원 지점 검증"
-  "${CNPG_S3_BACKUP_SCRIPT}" "${cnpg_temp_kubeconfig}"
-
-  echo "[2/4] 현재 CNPG EBS 온디맨드 Backup 생성 및 검증"
-  "${CNPG_AUTO_BACKUP_SCRIPT}" --manifest "${PETFLOW_CNPG_BACKUP_MANIFEST}"
+  export KUBECONFIG="${cnpg_temp_kubeconfig}"
+  echo "[1/4] 업무 쓰기 중단 및 CNPG/장바구니/Kafka 통합 백업 검증"
+  "${SCRIPT_DIR}/scripts/stateful-backup.sh"
+  echo "[2/4] 이번 실행의 통합 복원 지점 게시 완료"
 
   echo "[3/4] Kubernetes LB/Persistent Storage Cleanup"
   "${SCRIPT_DIR}/cleanup-k8s.sh" --backup-manifest "${PETFLOW_CNPG_BACKUP_MANIFEST}"

@@ -151,6 +151,12 @@ variable "eks_redis_port_forward_principal_arns" {
   default     = []
 }
 
+variable "eks_prometheus_port_forward_principal_arns" {
+  description = "EKS 조회 주체 중 observability 네임스페이스의 Prometheus Pod 포트포워드를 허용할 IAM User/Role ARN 목록"
+  type        = list(string)
+  default     = []
+}
+
 variable "eks_audit_crd_principal_arns" {
   description = "EKS 조회 주체 중 CNPG, Argo CD, Prometheus/Alertmanager의 지정된 커스텀 리소스를 읽을 IAM User/Role ARN 목록"
   type        = list(string)

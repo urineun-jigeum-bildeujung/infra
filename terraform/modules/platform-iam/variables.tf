@@ -19,3 +19,8 @@ variable "aws_region" {
   description = "Karpenter 정책의 리소스 조건에 사용할 리전"
   type        = string
 }
+
+variable "ml_artifacts_bucket_arn" {
+  description = "recommendation 서비스가 학습된 모델 아티팩트를 읽어올 S3 Bucket ARN (modules/s3의 bucket_arns[\"ml-artifacts\"] 출력)"
+  type        = string
+}

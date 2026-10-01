@@ -35,8 +35,14 @@ def render_application(relative, namespace):
         values = Path(directory) / "values.yaml"
         values.write_text(helm.get("values", "{}"))
         values.chmod(0o600)
-        rendered = run(["helm", "template", helm.get("releaseName", source["chart"]), source["chart"],
-                        "--repo", source["repoURL"], "--version", source["targetRevision"],
+        # Bitnami's HTTP index redirects these packages to OCI. Helm 3.14 cannot
+        # follow that redirect, but supports the identical pinned chart directly.
+        if source["repoURL"].rstrip("/") == "https://charts.bitnami.com/bitnami":
+            chart_args = ["oci://registry-1.docker.io/bitnamicharts/" + source["chart"]]
+        else:
+            chart_args = [source["chart"], "--repo", source["repoURL"]]
+        rendered = run(["helm", "template", helm.get("releaseName", source["chart"])] + chart_args + [
+                        "--version", source["targetRevision"],
                         "--namespace", namespace, "--include-crds", "-f", str(values)])
     kube("apply", "-f", "-", input_data=rendered)
 

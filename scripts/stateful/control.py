@@ -41,12 +41,22 @@ def compatible_source(recorded):
     current = source_hashes()
     if recorded == current:
         return True
-    # 3b6a992 used the same data recovery procedure but required a local
-    # qualification report before backup. Preserve recovery of its existing
-    # manifests after removing that precondition. Every other file must match.
-    previous = dict(current)
-    previous["infra/scripts/stateful/control.py"] = "41859dee976896ce46b0418fe717cb50383f38c55c1b615bdc24b12f446ad78d"
-    return recorded == previous
+    # These revisions use the same data/identity verification procedure. The
+    # common.py handles absent namespaces/CRDs on rebuilt clusters; bootstrap.py
+    # downloads the same pinned Bitnami chart through its direct OCI address.
+    # Keep every other recovery implementation and GitOps setting pinned.
+    allowed = {
+        "infra/scripts/stateful/control.py": {
+            "41859dee976896ce46b0418fe717cb50383f38c55c1b615bdc24b12f446ad78d",
+            "a35f00edc61fe241494dd80378470d2d342f5971d58cb898fffc80c224894cc8"},
+        "infra/scripts/stateful/common.py": {
+            "cecb6f9dfdb11133130d0e1fd9c962563024e1502a77277e02c224d4acb5cb71"},
+        "infra/scripts/stateful/bootstrap.py": {
+            "b91235cceac20f1462dd4494dd258d986e77d7a9d17530489d232c89bbbe121a"},
+    }
+    return recorded.keys() == current.keys() and all(
+        value == current[path] or value in allowed.get(path, set())
+        for path, value in recorded.items())
 
 
 def manifest_shape(manifest):
@@ -181,6 +191,7 @@ def restore():
         return
     verify_manifest(latest)
     require(compatible_source(latest["sourceHashes"]), "restore code/GitOps configuration differs from the backup; use the recorded revisions")
+    log("통합 백업 선택: " + latest["runId"])
     directory = ROOT / ".restore-evidence" / latest["runId"]
     directory.mkdir(parents=True, exist_ok=True)
     directory.chmod(0o700)
@@ -199,6 +210,7 @@ def restore():
     source = directory / "cnpg.json"
     save(source, latest["cnpg"])
     if not progress.get("cnpg"):
+        log("CNPG 복원 및 업무 테이블 내용 검증")
         import subprocess
         subprocess.check_call([str(ROOT / "scripts/restore-cnpg-before-gitops.sh")],
                               env=dict(os.environ, PETFLOW_CNPG_PINNED_SOURCE=str(source)))
@@ -206,6 +218,7 @@ def restore():
         progress["cnpg"] = True
         save(journal_path, progress)
     if not progress.get("redis"):
+        log("Redis 준비 및 장바구니 복원/검증")
         bootstrap.prepare_redis()
         payload = download(latest["redis"])
         # Partial Redis writes are never silently overwritten. Keep the same cohort,
@@ -216,6 +229,7 @@ def restore():
         progress["redis"] = redis_cart.restore_cart(payload, allow_partial=was_started)
         save(journal_path, progress)
     if not progress.get("kafka"):
+        log("Kafka EBS/identity/offset 복원 및 검증")
         state = download(latest["kafka"])
         progress["kafka"] = bootstrap.restore_kafka(state, directory / "kafka-progress.json")
         save(journal_path, progress)
@@ -263,5 +277,8 @@ if __name__ == "__main__":
         main()
     except (RuntimeError, KeyError, ValueError, OSError, subprocess.CalledProcessError) as error:
         print("[stateful] ERROR: " + str(error), file=sys.stderr)
-        print("[stateful] 중지된 서비스는 자동 재개하지 않습니다. maintenance journal과 문서를 확인하세요.", file=sys.stderr)
+        if len(sys.argv) > 1 and sys.argv[1] == "restore":
+            print("[stateful] 원인을 해결한 뒤 tapply.sh를 재실행하세요. 선택한 백업과 복원 journal에서 이어서 진행합니다.", file=sys.stderr)
+        else:
+            print("[stateful] 중지된 서비스는 자동 재개하지 않습니다. maintenance journal과 문서를 확인하세요.", file=sys.stderr)
         sys.exit(1)

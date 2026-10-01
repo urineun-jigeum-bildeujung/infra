@@ -157,6 +157,57 @@ class RedisTests(unittest.TestCase):
 
 
 class GuardTests(unittest.TestCase):
+    def test_bitnami_render_uses_pinned_oci_chart(self):
+        source = {"chart": "redis", "repoURL": "https://charts.bitnami.com/bitnami",
+                  "targetRevision": "20.13.4", "helm": {"values": "architecture: standalone"}}
+        with patch.object(bootstrap, "application_source", return_value=source), \
+                patch.object(bootstrap, "apply"), patch.object(bootstrap, "kube"), \
+                patch.object(bootstrap, "run", return_value="rendered") as run:
+            bootstrap.render_application("redis.yaml", "redis")
+        args = run.call_args[0][0]
+        self.assertIn("oci://registry-1.docker.io/bitnamicharts/redis", args)
+        self.assertEqual(args[args.index("--version") + 1], "20.13.4")
+        self.assertNotIn("--repo", args)
+
+    def test_strimzi_render_preserves_http_chart_source(self):
+        source = {"chart": "strimzi-kafka-operator", "repoURL": "https://strimzi.io/charts/",
+                  "targetRevision": "0.45.2"}
+        with patch.object(bootstrap, "application_source", return_value=source), \
+                patch.object(bootstrap, "apply"), patch.object(bootstrap, "kube"), \
+                patch.object(bootstrap, "run", return_value="rendered") as run:
+            bootstrap.render_application("kafka.yaml", "kafka")
+        args = run.call_args[0][0]
+        self.assertEqual(args[args.index("--repo") + 1], source["repoURL"])
+        self.assertEqual(args[args.index("--version") + 1], "0.45.2")
+
+    def test_named_resource_in_missing_namespace_is_absent(self):
+        with patch.object(common, "kube", return_value="") as kube:
+            self.assertIsNone(common.get("configmap", "stateful-recovery", "database"))
+        self.assertEqual(kube.call_count, 1)
+        self.assertEqual(kube.call_args[0][:3], ("get", "namespace", "database"))
+
+    def test_named_custom_resource_without_crd_is_absent(self):
+        with patch.object(common, "kube", side_effect=['{"metadata":{"name":"database"}}', ""]) as kube:
+            self.assertIsNone(common.get("cluster", "petflow-db", "database"))
+        self.assertEqual(kube.call_count, 2)
+        self.assertEqual(kube.call_args[0][:3], ("get", "crd", "clusters.postgresql.cnpg.io"))
+
+    def test_namespace_query_failure_is_not_treated_as_absence(self):
+        with patch.object(common, "kube", side_effect=RuntimeError("connection failed")):
+            with self.assertRaisesRegex(RuntimeError, "namespace/database.*connection failed"):
+                common.get("cluster", "petflow-db", "database")
+
+    def test_rebuilt_cluster_fix_accepts_known_backup_only(self):
+        current = {"infra/scripts/stateful/control.py": "current",
+                   "infra/scripts/stateful/common.py": "current", "kafka.yaml": "same"}
+        previous = dict(current)
+        previous["infra/scripts/stateful/control.py"] = "41859dee976896ce46b0418fe717cb50383f38c55c1b615bdc24b12f446ad78d"
+        previous["infra/scripts/stateful/common.py"] = "cecb6f9dfdb11133130d0e1fd9c962563024e1502a77277e02c224d4acb5cb71"
+        with patch.object(control, "source_hashes", return_value=current):
+            self.assertTrue(control.compatible_source(previous))
+            previous["infra/scripts/stateful/common.py"] = "unknown"
+            self.assertFalse(control.compatible_source(previous))
+
     def test_rollout_controller_stops_only_after_business_pods_drain(self):
         state={"status":"captured", "controllers":[{"namespace":"argo-rollouts","kind":"deployment","name":"argo-rollouts","replicas":2}],
                "workloads":[{"namespace":"auth-service","kind":"rollouts.argoproj.io","name":"generic-service","replicas":2}],

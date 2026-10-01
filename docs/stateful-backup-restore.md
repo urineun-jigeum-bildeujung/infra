@@ -97,11 +97,30 @@ Kafka가 Ready가 아니면 업무 서비스 재개를 차단한다. storage cle
 
 ## apply / 재실행
 
+데이터 복원과 서비스 배포가 이미 완료됐고 마지막 Grafana 계정/Web DNS/HTTPS
+단계만 실패했다면 `AWS_PROFILE=petflow-terraform-<사용자> ./tapply.sh --finish`로
+마무리만 실행한다. 이 경로는 ready marker와 현재 CNPG/Redis/Kafka 준비 상태를
+확인한 뒤 Grafana 관리자 인증·security-audit 계정, Web DNS/HTTPS, 최종 상태를
+검사한다. Terraform DEV Apply, 데이터 재복원, GitOps bootstrap은 실행하지 않는다.
+Grafana 관리자 Secret 인증이 401이고 기본 admin 계정인 경우 기존 Secret 값을
+표준입력으로 Grafana CLI에 전달해 DB 비밀번호를 동기화하고 인증을 재검증한다.
+
 `./tapply.sh`는 root-app 전에 `stateful-restore.sh`를 호출한다. 기존 세 저장소가 모두
 Ready이면 데이터를 유지한다. 새 클러스터에는 통합 manifest 하나를 선택한다.
 선택한 manifest는 복원 상태 ConfigMap에도 기록하므로 부분 복원 재실행 중 최신 포인터가
 바뀌어도 처음 선택한 실행을 유지한다.
+새 EKS에 namespace나 CNPG/Kafka CRD가 아직 없으면 기존 저장소가 없는 것으로
+처리하고 선행 구성 요소 설치부터 진행한다. 조회 권한이나 API 연결 오류는 계속
+중단하며, 오류에 조회 리소스와 namespace를 표시한다.
 복원 코드/구성 hash가 다르면 자동 복원을 중단하고 기록된 버전을 사용한다.
+namespace/CRD 부재 처리와 동일 버전 Bitnami 차트의 OCI 직접 조회만 수정된
+알려진 이전 코드 hash는 호환되며,
+나머지 복원 코드와 GitOps 설정은 백업 기록과 같아야 한다.
+Bitnami 차트는 HTTP index의 OCI redirect를 처리하지 못하는 Helm 버전에서도
+복원할 수 있도록 OCI 주소에서 GitOps에 고정된 같은 버전을 직접 렌더링한다.
+KEDA 동기화가 성공하고 Healthy인데 새 CRD만 OutOfSync로 남으면 `tapply.sh`가
+Argo CD 비교 캐시 갱신을 한 번 요청한다. 이후에도 Synced/Healthy와 실제
+Deployment/CRD/External Metrics 준비 검사를 모두 통과해야 다음 단계로 진행한다.
 
 CNPG는 지정 base backup/named restore point까지 복원한 뒤 업무 테이블 fingerprint를
 비교한다. Redis는 빈 인스턴스에만 cart를 복원하고 `WAITAOF`와 내용 검증을 수행한다.

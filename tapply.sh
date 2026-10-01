@@ -4,6 +4,8 @@
 # 사용:
 #   AWS_PROFILE=petflow-terraform-<사용자> ./tplan.sh
 #   AWS_PROFILE=petflow-terraform-<사용자> ./tapply.sh
+#   AWS_PROFILE=petflow-terraform-<사용자> ./tapply.sh --finish
+# --finish: 복원/서비스 배포 완료 후 Grafana 계정과 Web DNS/HTTPS 마무리만 재실행.
 #
 # GitOps가 기본 위치(../gitops)가 아니면 GITOPS_DIR로 재정의한다.
 # DNS 적용을 의도적으로 제외할 때만 APPLY_WEB_DNS=false를 사용한다.
@@ -34,6 +36,13 @@ JENKINS_READY_POLL_INTERVAL_SECONDS="${JENKINS_READY_POLL_INTERVAL_SECONDS:-10}"
 JENKINS_DIAGNOSTIC_LOG_TAIL_LINES="${JENKINS_DIAGNOSTIC_LOG_TAIL_LINES:-200}"
 AUTOSCALING_READY_TIMEOUT_SECONDS="${AUTOSCALING_READY_TIMEOUT_SECONDS:-900}"
 AUTOSCALING_READY_POLL_INTERVAL_SECONDS="${AUTOSCALING_READY_POLL_INTERVAL_SECONDS:-10}"
+FINISH_ONLY=false
+case "${1:-}" in
+  "") [[ $# == 0 ]] || { printf '[tapply] ERROR: 빈 인자는 지원하지 않습니다.\n' >&2; exit 1; } ;;
+  --finish) FINISH_ONLY=true; shift ;;
+  *) printf '[tapply] ERROR: 사용법: ./tapply.sh [--finish]\n' >&2; exit 1 ;;
+esac
+[[ $# == 0 ]] || { printf '[tapply] ERROR: 사용법: ./tapply.sh [--finish]\n' >&2; exit 1; }
 
 # shellcheck source=scripts/lib/jenkins-diagnostics.sh
 source "${SCRIPT_DIR}/scripts/lib/jenkins-diagnostics.sh"
@@ -705,6 +714,7 @@ exec 9>"${LOCK_FILE}"
 flock -n 9 || fail "다른 PetFlow 인프라 Apply/Destroy 작업이 실행 중입니다."
 log "인프라 작업 Lock 획득: ${LOCK_FILE}"
 
+if [[ "${FINISH_ONLY}" == false ]]; then
 log "[1/18] Terraform DEV Apply와 PostgreSQL 이미지 준비"
 PETFLOW_INTERNAL_ORCHESTRATOR=true "${SCRIPT_DIR}/scripts/apply-infra.sh"
 
@@ -781,6 +791,18 @@ log "[16/18] Grafana Public ALB Target·Route53·HTTPS 및 Prometheus 비공개 
 APPLY_OBSERVABILITY_DNS="${APPLY_OBSERVABILITY_DNS}" \
   PETFLOW_INTERNAL_ORCHESTRATOR=true \
   "${SCRIPT_DIR}/scripts/configure-observability-access.sh"
+else
+  log "마무리만 실행: Grafana 계정 준비, Web DNS/HTTPS, 최종 상태 확인"
+  phase="$(kubectl --context "${KUBECONFIG_CONTEXT}" --request-timeout=30s \
+    -n database get configmap stateful-recovery -o jsonpath='{.data.phase}')"
+  [[ "${phase}" == ready ]] || fail "데이터 복원이 완료되지 않았습니다. 전체 tapply.sh를 먼저 실행하세요."
+  GITOPS_DIR="${GITOPS_DIR}" bash "${SCRIPT_DIR}/scripts/stateful-restore.sh"
+  cluster_name="$(terraform -chdir="${TERRAFORM_DIR}" output -raw eks_cluster_name)"
+  aws_region="$(terraform -chdir="${TERRAFORM_DIR}" output -raw aws_region)"
+  [[ "${aws_region}" == "${EXPECTED_AWS_REGION}" ]] || fail "Terraform output Region 불일치: ${aws_region}"
+  log "[16/18] Grafana 관리자 인증과 security-audit 계정 준비"
+fi
+KUBE_CONTEXT="${KUBECONFIG_CONTEXT}" python3 "${SCRIPT_DIR}/scripts/reconcile-grafana-admin.py"
 if ! (
   cd "${GITOPS_DIR}"
   task bootstrap:grafana-audit-user KUBE_CONTEXT="${KUBECONFIG_CONTEXT}"
@@ -801,4 +823,8 @@ fi
 log "[18/18] 최종 상태 요약"
 print_final_summary "${cluster_name}" "${aws_region}"
 
-log "DEV 전체 Apply 완료"
+if [[ "${FINISH_ONLY}" == true ]]; then
+  log "DEV Apply 마무리 완료"
+else
+  log "DEV 전체 Apply 완료"
+fi

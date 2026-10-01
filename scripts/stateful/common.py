@@ -49,6 +49,14 @@ def kube(*args, **kwargs):
 
 
 def get(kind, name=None, namespace=None, selector=None):
+    # A rebuilt EKS has neither application namespaces nor operator CRDs yet.
+    # Probe their existence explicitly; authentication/discovery failures still abort.
+    if name and namespace and not get("namespace", namespace):
+        return None
+    crds = {"cluster": "clusters.postgresql.cnpg.io",
+            "kafka": "kafkas.kafka.strimzi.io"}
+    if name and kind in crds and not get("crd", crds[kind]):
+        return None
     args = ["get", kind]
     if name:
         args += [name, "--ignore-not-found"]
@@ -58,7 +66,11 @@ def get(kind, name=None, namespace=None, selector=None):
         args += ["-A"]
     if selector:
         args += ["-l", selector]
-    raw = kube(*(args + ["-o", "json"]))
+    try:
+        raw = kube(*(args + ["-o", "json"]))
+    except RuntimeError as error:
+        raise RuntimeError("Kubernetes get {}/{} namespace={}: {}".format(
+            kind, name or "*", namespace or "*", error)) from error
     return json.loads(raw) if raw.strip() else None
 
 

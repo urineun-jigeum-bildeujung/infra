@@ -39,6 +39,22 @@ autoscaling_application_ready() {
     | jq -e '.status.sync.status == "Synced" and .status.health.status == "Healthy"' >/dev/null
 }
 
+autoscaling_refresh_completed_crd_sync() {
+  local name="$1"
+  # A newly installed CRD can be absent from Argo CD's comparison cache even
+  # after a successful sync. Refresh once, retaining the Synced/Healthy gate.
+  autoscaling_kubectl --namespace argocd get application "${name}" -o json \
+    | jq -e '.status.sync.status == "OutOfSync"
+      and .status.health.status == "Healthy"
+      and .status.operationState.phase == "Succeeded"
+      and ((.status.conditions // []) | length == 0)
+      and ([.status.resources[]? | select(.status != "Synced")] |
+        length > 0 and all(.kind == "CustomResourceDefinition"))' >/dev/null || return 1
+  autoscaling_kubectl --namespace argocd annotate application "${name}" \
+    argocd.argoproj.io/refresh=hard --overwrite >/dev/null || return 1
+  log "${name} CRD 설치 완료 후 비교 캐시 갱신 요청"
+}
+
 autoscaling_deployment_ready() {
   local namespace="$1"
   local name="$2"
@@ -106,11 +122,17 @@ wait_for_keda() {
   local cluster_name="$1"
   local aws_region="$2"
   local deadline external_api_available ready=true deployment_name crd_name
+  local crd_refresh_requested=false
 
   deadline=$(($(date +%s) + AUTOSCALING_READY_TIMEOUT_SECONDS))
   while (( $(date +%s) < deadline )); do
     ready=true
-    autoscaling_application_ready keda || ready=false
+    if ! autoscaling_application_ready keda; then
+      ready=false
+      if [[ "${crd_refresh_requested}" == false ]] && autoscaling_refresh_completed_crd_sync keda; then
+        crd_refresh_requested=true
+      fi
+    fi
     for deployment_name in keda-operator keda-operator-metrics-apiserver keda-admission-webhooks; do
       autoscaling_deployment_ready keda "${deployment_name}" || ready=false
     done

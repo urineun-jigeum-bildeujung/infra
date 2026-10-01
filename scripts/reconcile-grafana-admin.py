@@ -13,6 +13,8 @@ import urllib.request
 
 CONTEXT = os.environ.get("KUBE_CONTEXT", "petflow-dev")
 KUBE = ["kubectl", "--context", CONTEXT, "--request-timeout=30s", "-n", "observability"]
+ADMIN_SECRET_NAME = os.environ.get("GRAFANA_ADMIN_SECRET_NAME", "grafana-admin-credentials")
+MIN_PASSWORD_LENGTH = 10
 
 
 def run(args, input_data=None):
@@ -33,6 +35,11 @@ def status(url, user=None, password=None):
             return response.status
     except urllib.error.HTTPError as error:
         return error.code
+
+
+def credentials_are_valid(user, password):
+    return bool(user) and len(password) >= MIN_PASSWORD_LENGTH and not any(
+        character in password for character in "\r\n")
 
 
 def reconcile(url, user, password):
@@ -65,10 +72,10 @@ def reconcile(url, user, password):
 
 
 def main():
-    secret = json.loads(run(KUBE + ["get", "secret", "kube-prometheus-stack-grafana", "-o", "json"]))
+    secret = json.loads(run(KUBE + ["get", "secret", ADMIN_SECRET_NAME, "-o", "json"]))
     user = base64.b64decode(secret["data"]["admin-user"]).decode()
     password = base64.b64decode(secret["data"]["admin-password"]).decode()
-    if not user or len(password) < 16 or any(c in password for c in "\r\n"):
+    if not credentials_are_valid(user, password):
         raise RuntimeError("Grafana 관리자 Secret 형식/길이 검증 실패")
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))

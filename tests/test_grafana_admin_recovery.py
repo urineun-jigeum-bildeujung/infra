@@ -12,6 +12,14 @@ spec.loader.exec_module(admin)
 
 
 class AdminRecoveryTests(unittest.TestCase):
+    def test_stable_admin_secret_name_is_used_by_default(self):
+        self.assertEqual(admin.ADMIN_SECRET_NAME, "grafana-admin-credentials")
+
+    def test_password_policy_accepts_ten_characters_and_rejects_nine(self):
+        self.assertTrue(admin.credentials_are_valid("admin", "0123456789"))
+        self.assertFalse(admin.credentials_are_valid("admin", "012345678"))
+        self.assertFalse(admin.credentials_are_valid("admin", "0123456789\n"))
+
     def test_valid_authentication_does_not_reset_password(self):
         with patch.object(admin, "status", return_value=200), patch.object(admin, "run") as run:
             admin.reconcile("http://localhost", "admin", "existing-password")

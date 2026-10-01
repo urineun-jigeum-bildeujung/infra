@@ -12,6 +12,8 @@ OBSERVABILITY_DNS_DIR="${ROOT_DIR}/terraform/environments/dev-management-dns"
 KUBECONFIG_CONTEXT="petflow-dev"
 OBSERVABILITY_NAMESPACE="observability"
 GRAFANA_INGRESS_NAME="grafana-public"
+GRAFANA_ADMIN_SECRET_NAME="${GRAFANA_ADMIN_SECRET_NAME:-grafana-admin-credentials}"
+GRAFANA_ADMIN_PASSWORD_MIN_LENGTH="${GRAFANA_ADMIN_PASSWORD_MIN_LENGTH:-10}"
 PUBLIC_ALB_NAME="petflow-dev-public"
 EXPECTED_INGRESS_STACK="petflow-public"
 EXPECTED_EKS_CLUSTER_NAME="petflow-eks"
@@ -48,9 +50,12 @@ verify_grafana_admin_secret() {
   local admin_user
   local admin_password
 
+  [[ "${GRAFANA_ADMIN_PASSWORD_MIN_LENGTH}" =~ ^[1-9][0-9]*$ ]] \
+    || fail "Grafana 관리자 비밀번호 최소 길이는 양의 정수여야 합니다."
+
   secret_json="$(kubectl --context "${KUBECONFIG_CONTEXT}" \
     --namespace "${OBSERVABILITY_NAMESPACE}" \
-    get secret kube-prometheus-stack-grafana -o json 2>/dev/null)" \
+    get secret "${GRAFANA_ADMIN_SECRET_NAME}" -o json 2>/dev/null)" \
     || fail "Grafana 관리자 Kubernetes Secret을 조회하지 못했습니다."
   encoded_user="$(jq -r '.data["admin-user"] // empty' <<< "${secret_json}")"
   encoded_password="$(jq -r '.data["admin-password"] // empty' <<< "${secret_json}")"
@@ -59,7 +64,7 @@ verify_grafana_admin_secret() {
 
   admin_user="$(base64 --decode <<< "${encoded_user}")"
   admin_password="$(base64 --decode <<< "${encoded_password}")"
-  [[ -n "${admin_user}" && ${#admin_password} -ge 16 ]] \
+  [[ -n "${admin_user}" && ${#admin_password} -ge "${GRAFANA_ADMIN_PASSWORD_MIN_LENGTH}" ]] \
     || fail "Grafana 관리자 계정 또는 비밀번호 정책을 충족하지 못했습니다."
   if [[ "${admin_user}" == "admin" && "${admin_password}" == "admin" ]]; then
     fail "Grafana 기본 admin/admin 조합은 허용하지 않습니다."

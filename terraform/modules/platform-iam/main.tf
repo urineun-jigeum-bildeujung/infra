@@ -15,6 +15,7 @@
 #   | Jenkins Kaniko                | jenkins     | jenkins-kaniko               |
 #   | External Secrets Operator    | external-secrets | external-secrets        |
 #   | Trivy Operator                | trivy-system | trivy-operator              |
+#   | recommendation (모델 아티팩트 읽기) | recommendation | generic-service        |
 #
 # 관리 대상 (DEV 생명주기 — destroy/apply 반복 가능):
 #   - ALB Controller: Role + 공식 Policy + Pod Identity Association
@@ -26,6 +27,11 @@
 #   - Trivy Operator: ECR Pull-only 최소 권한 Role + Policy + Pod Identity Association
 #     (지금까지 이 Role 이 없어서 petflow 자체 이미지 취약점 스캔이 전부 401로 실패하고
 #     있었음 — 재시도만 반복되며 NAT 트래픽만 낭비. 이번에 신설)
+#   - recommendation: ml-artifacts S3 Bucket의 recommendation/* prefix만 읽는
+#     최소 권한 Role + Policy + Pod Identity Association. DeepFM 모델 파일을
+#     이미지에 넣지 않고 기동 시 S3에서 받아오는 방식으로 전환하면서 신설
+#     (2026-10-01, AI팀 요청 — 모델 아티팩트가 어디에도 없어 추천 API가 전부
+#     500으로 실패하던 문제의 해결책).
 #
 # 이번 범위에서 제외:
 #   - Karpenter Interruption Queue (SQS) — Spot 중단 대응이 필요해지면 추가
@@ -393,4 +399,57 @@ resource "aws_eks_pod_identity_association" "trivy_operator" {
   namespace       = "trivy-system"
   service_account = "trivy-operator"
   role_arn        = aws_iam_role.trivy_operator.arn
+}
+
+# =============================================================================
+# recommendation — 모델 아티팩트 S3 읽기
+# =============================================================================
+# DeepFM 모델(feature_encoder.json 등)을 이미지에 포함하지 않고, 파드 기동 시
+# S3에서 내려받는 방식으로 전환한다. ml-artifacts Bucket 전체가 아니라
+# recommendation/* prefix만 읽을 수 있게 범위를 제한한다 — 다른 서비스가
+# 쓰게 될 prefix(향후)까지 이 Role로 읽을 수 없어야 한다.
+resource "aws_iam_role" "recommendation_model_reader" {
+  name               = "${local.name_prefix}-recommendation-model-reader"
+  description        = "Read-only role for recommendation service to download model artifacts from S3"
+  assume_role_policy = data.aws_iam_policy_document.pod_identity_trust.json
+}
+
+data "aws_iam_policy_document" "recommendation_model_reader" {
+  statement {
+    sid       = "ListMlArtifactsRecommendationPrefix"
+    effect    = "Allow"
+    actions   = ["s3:ListBucket"]
+    resources = [var.ml_artifacts_bucket_arn]
+
+    condition {
+      test     = "StringLike"
+      variable = "s3:prefix"
+      values   = ["recommendation/*"]
+    }
+  }
+
+  statement {
+    sid       = "GetMlArtifactsRecommendationObjects"
+    effect    = "Allow"
+    actions   = ["s3:GetObject"]
+    resources = ["${var.ml_artifacts_bucket_arn}/recommendation/*"]
+  }
+}
+
+resource "aws_iam_policy" "recommendation_model_reader" {
+  name        = "${local.name_prefix}-recommendation-model-reader"
+  description = "Read-only access to the recommendation/* prefix of the ml-artifacts bucket"
+  policy      = data.aws_iam_policy_document.recommendation_model_reader.json
+}
+
+resource "aws_iam_role_policy_attachment" "recommendation_model_reader" {
+  role       = aws_iam_role.recommendation_model_reader.name
+  policy_arn = aws_iam_policy.recommendation_model_reader.arn
+}
+
+resource "aws_eks_pod_identity_association" "recommendation_model_reader" {
+  cluster_name    = var.cluster_name
+  namespace       = "recommendation"
+  service_account = "generic-service"
+  role_arn        = aws_iam_role.recommendation_model_reader.arn
 }

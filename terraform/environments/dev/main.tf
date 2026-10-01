@@ -20,8 +20,9 @@ locals {
     var.cloudtrail_admin_role_arns,
   ))
 
-  # 기존 tfvars에서도 사용자 이미지 업로드와 CNPG 백업 Bucket을 보장한다.
-  dev_s3_bucket_purposes = distinct(concat(var.s3_bucket_purposes, ["uploads", "db-backups"]))
+  # 기존 tfvars에서도 사용자 이미지 업로드, CNPG 백업, recommendation 모델 아티팩트
+  # Bucket을 보장한다.
+  dev_s3_bucket_purposes = distinct(concat(var.s3_bucket_purposes, ["uploads", "db-backups", "ml-artifacts"]))
 
   # 앱에는 CloudFront 기본 도메인 대신 이 고정 이미지 도메인을 전달한다.
   uploads_custom_domain_name = "image.${var.domain_name}"
@@ -136,10 +137,11 @@ module "eks" {
 module "platform_iam" {
   source = "../../modules/platform-iam"
 
-  project_name = var.project_name
-  environment  = var.environment
-  aws_region   = var.aws_region
-  cluster_name = module.eks.cluster_name
+  project_name            = var.project_name
+  environment             = var.environment
+  aws_region              = var.aws_region
+  cluster_name            = module.eks.cluster_name
+  ml_artifacts_bucket_arn = module.s3.bucket_arns["ml-artifacts"]
 }
 
 module "ecr" {

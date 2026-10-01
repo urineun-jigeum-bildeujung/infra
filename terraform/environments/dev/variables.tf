@@ -236,7 +236,7 @@ variable "eks_node_max_size" {
 variable "s3_bucket_purposes" {
   description = "애플리케이션용 S3 Bucket 의 용도 목록. 용도별로 <project>-<env>-<용도> Bucket 이 생성된다."
   type        = list(string)
-  default     = ["static", "product-images", "uploads", "db-backups"]
+  default     = ["static", "product-images", "uploads", "db-backups", "ml-artifacts"]
 }
 
 variable "uploads_allowed_origins" {

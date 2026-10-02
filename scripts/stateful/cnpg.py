@@ -3,7 +3,7 @@ import json
 import re
 from common import BUCKET, aws, get, kube, require
 
-DATABASES = ("auth_db", "member_db", "product_db", "order_db", "payment_db", "review_db", "notification_db")
+DATABASES = ("auth_db", "member_db", "product_db", "order_db", "payment_db", "review_db", "notification_db", "repurchase_db")
 
 
 def primary():

@@ -440,6 +440,13 @@ resource "aws_iam_policy" "recommendation_model_reader" {
   name        = "${local.name_prefix}-recommendation-model-reader"
   description = "Read-only access to the recommendation/* prefix of the ml-artifacts bucket"
   policy      = data.aws_iam_policy_document.recommendation_model_reader.json
+
+  lifecycle {
+    # The incident-recovery policy already exists without a description. AWS
+    # policy descriptions are immutable; adopt it without detaching live access.
+    # Policy permissions remain fully managed and compared by Terraform.
+    ignore_changes = [description]
+  }
 }
 
 resource "aws_iam_role_policy_attachment" "recommendation_model_reader" {

@@ -3,7 +3,7 @@ from common import apply, clean, get, kube, load, poll, require, save, utc
 
 SERVICES = ("api-gateway", "auth-service", "member-service", "product-service",
             "order-service", "payment-service", "review-service", "notification-service",
-            "recommendation", "nutrition", "web")
+            "recommendation", "nutrition", "web", "repurchase")
 CONTROLLERS = (("argocd", "statefulset", "argocd-application-controller"),
                ("argocd", "deployment", "argocd-applicationset-controller"),
                ("argo-rollouts", "deployment", "argo-rollouts"),

@@ -16,9 +16,17 @@ Redis cart 8개의 AOF·재시작 보존, Kafka 메시지·offset·identity·TLS
 쓰기 중단 후 실제 백업을 검증하며, 백업 실패 시 삭제를 중단한다. 시험 보고서는
 운영 참고 기록이며 스크립트 실행 전제조건이 아니다.
 
+## 실행 언어 분담
+
+2026-10-02 전체 셸 전환 대신 혼합 구조로 정리했다. `tapply.sh`, `tdestroy.sh`, CNPG S3/EBS 백업·복원·guard 및 Grafana 관리자 인증 복구는 셸로 실행한다. Grafana는 `scripts/reconcile-grafana-admin.sh`를 사용하며 기본 관리자 Secret은 `grafana-admin-credentials`다.
+
+Redis TLS/RESP와 cart 복원, YAML 처리, 데이터 fingerprint, 유지보수 상태·Kafka 복구·통합 manifest 검증은 기존 Python 모듈을 사용한다. KafkaTopic finalizer 정리도 같은 Python 백업 검증 코드를 재사용한다. `repurchase_db`는 DB 비교 대상에, `repurchase` namespace는 업무 중지 대상에 포함한다. DB fingerprint는 기존대로 `public` 스키마 테이블을 대상으로 한다.
+
+이번 혼합 구조 변경에서는 테스트와 실제 AWS 백업·복원은 실행하지 않았다. `infra-stateful-shell`의 전체 셸 변환본과 그 검증 기록은 별도 작업 자료이며 현재 `infra`의 실행 경로와 구분한다.
+
 ## 사전 요구사항
 
-- 관리 호스트: Python 3.6 이상 + PyYAML, aws CLI, kubectl, helm, jq, Terraform.
+- 관리 호스트: Bash, Python 3.6 이상 + PyYAML, aws CLI, kubectl, helm, jq, Terraform. Grafana 인증 복구에는 기존 curl과 GNU coreutils를 사용한다. yq, redis-cli, stunnel 설치는 필요하지 않다.
 - Terraform 실행 인증 계약은 기존 `scripts/lib/terraform-auth.sh`를 그대로 사용한다.
 - 기존 `petflow-dev-db-backups`의 Versioning과 기존 AWS Backup Vault/Role을 재사용한다.
   새로운 Pod Identity나 백업 Job은 필요하지 않다. S3 작업은 관리 호스트의 실행 Role로
@@ -94,6 +102,22 @@ python3 scripts/stateful/control.py resume-maintenance --journal .destroy-eviden
 Kafka가 Ready가 아니면 업무 서비스 재개를 차단한다. storage cleanup이 시작된 journal은
 서비스 재개에 사용할 수 없다. 업무 서비스를 재개한 뒤에는 새로운 runId로 다시 백업한다.
 실패했던 run의 파일을 합쳐 완전한 manifest를 만들지 않는다.
+
+## cleanup 완료 후 Terraform destroy 재개
+
+Terraform 계획 오류 등으로 cleanup 이후에만 중단됐다면 새 백업을 시도하는 기본 `tdestroy.sh` 대신 기존 실행을 지정한다.
+
+```bash
+AWS_PROFILE=petflow-terraform-ujibil1 ./tdestroy.sh --resume-terraform 20261002T122408Z-788882
+```
+
+동일 run의 `deleting` maintenance journal, 통합 백업 및 CNPG 백업 증거를 재검증한다. EKS가 남아 있으면 database/redis/kafka/jenkins/observability의 PVC/PV가 없어야 한다. 내부 destroy의 LB·백업 guard도 유지하며 기존 S3 복원 지점을 바꾸지 않는다. cleanup 도중 실패해 PVC/PV가 남은 상태에서는 이 모드를 사용하지 않는다.
+
+Kafka AWS Backup 복원 디스크에는 크기·암호화·PV/PVC 매핑 확인 후 CSI 관리 태그를 추가한다. 태그가 누락된 복원 디스크의 DeleteVolume 권한 거부 재발을 방지한다.
+
+`scripts/stateful/recovery-compatibility.json`은 이번 run의 16개 sourceHashes 전체와 태그 처리 수정본의 전체 sourceHashes를 정확히 연결한다. 이 목록 자체도 새 백업의 해시에 포함한다. 기록된 백업 JSON이나 해시를 수정하지 않으며, 목록에 없는 변경 조합은 거부한다. 기존 백업 형식·데이터 검증 절차는 유지한다.
+
+Terraform state에 존재했던 `ml-artifacts` 버킷을 DEV의 보존 버킷 목록에 포함했다. 보호 설정은 해제하지 않는다.
 
 ## apply / 재실행
 

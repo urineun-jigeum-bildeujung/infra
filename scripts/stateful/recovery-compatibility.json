@@ -1,0 +1,43 @@
+{
+  "migrations": [
+    {
+      "reason": "Kafka restored EBS CSI deletion tags; reviewed source combination from run 20261002T122408Z-788882",
+      "sourceHashes": {
+        "infra/scripts/cnpg-s3-backup.sh": "7e14da7e680be8b0dfed596708732a99db11f6958f82df3f1e58d87a6f2ab6ae",
+        "infra/scripts/restore-cnpg-before-gitops.sh": "5ecdb3c506419730e04f25d60cf76461f4bd12de200bfee4066cdb9b8f01ffd1",
+        "infra/scripts/stateful/bootstrap.py": "e36bf7861a71ec8c7ff8a1184e02b49dd90fd208c0c98449b19b6880c3ac9dd5",
+        "infra/scripts/stateful/cnpg.py": "67f09014cdfa687b945382a3444614c12bf49e4156b39aad96358c2c7e45b7f0",
+        "infra/scripts/stateful/common.py": "ffc1bf30da47b10a1c86211338fcd233c83c1a105e9a5fd7baae671483469a45",
+        "infra/scripts/stateful/control.py": "fe1fc6594e5f253cec83aba481780e4a15ea850786310459f037839151550038",
+        "infra/scripts/stateful/kafka.py": "5d811929e5a48fa4e7321f7fc3be645709566d67af626b4381a69cbe2b749c51",
+        "infra/scripts/stateful/maintenance.py": "3b936c380dd56aefc42939666926ff8aa0cb8c9d047429c9ba5dbffcfb8a13a2",
+        "infra/scripts/stateful/redis_cart.py": "9cbfb6dc767ca05be5a4b69224a70d64da16c620614b2384c4343d8c76cd51f3",
+        "platform/00-internal-ca/manifests/internal-ca.yaml": "480e76603b52368a322619851c17da7525c9a236488110d13e3325c8c2ed3dcb",
+        "platform/39-redis-cert/manifests/redis-cert.yaml": "97ec54a372ac41cfc00990a59d9870202811fdc520019da2efc402f0eb90a44a",
+        "platform/40-kafka-operator/application.yaml": "44f26297061333fb0c64cd6e3ba8e6560affff726bb42fb9443ce7161a7509a9",
+        "platform/40-redis/application.yaml": "ebdd923733c26469617269a24e178242c8a91914b041bb1945c83ac483b4fb0f",
+        "platform/50-kafka-cluster/manifests/kafka-users.yaml": "07ea3f72fa9b8fe8b9a8efbedf332f56186f61f06e5aa3f8706bad9262f95443",
+        "platform/50-kafka-cluster/manifests/kafka.yaml": "0e6ff3ace1fdc4ded9625ec3554ed5fcf28b8aae5d6e759886e08bb63589f644",
+        "platform/91-external-secrets-config/manifests/redis-credentials.yaml": "455c01a3c376cdb60ebbbeabe00de56f596a8ca892e291a306823c45c0f1c050"
+      },
+      "replacementSourceHashes": {
+        "infra/scripts/cnpg-s3-backup.sh": "7e14da7e680be8b0dfed596708732a99db11f6958f82df3f1e58d87a6f2ab6ae",
+        "infra/scripts/restore-cnpg-before-gitops.sh": "5ecdb3c506419730e04f25d60cf76461f4bd12de200bfee4066cdb9b8f01ffd1",
+        "infra/scripts/stateful/bootstrap.py": "f6f173160145c9bc63afdf5b32c80431e4cae840c18db06dcd0a51d44f0751c7",
+        "infra/scripts/stateful/cnpg.py": "67f09014cdfa687b945382a3444614c12bf49e4156b39aad96358c2c7e45b7f0",
+        "infra/scripts/stateful/common.py": "ffc1bf30da47b10a1c86211338fcd233c83c1a105e9a5fd7baae671483469a45",
+        "infra/scripts/stateful/control.py": "be244ff141d18854cda0c6c772fcbdad4c2e9619c4b1303761db8f33bd594a85",
+        "infra/scripts/stateful/kafka.py": "5d811929e5a48fa4e7321f7fc3be645709566d67af626b4381a69cbe2b749c51",
+        "infra/scripts/stateful/maintenance.py": "3b936c380dd56aefc42939666926ff8aa0cb8c9d047429c9ba5dbffcfb8a13a2",
+        "infra/scripts/stateful/redis_cart.py": "9cbfb6dc767ca05be5a4b69224a70d64da16c620614b2384c4343d8c76cd51f3",
+        "platform/00-internal-ca/manifests/internal-ca.yaml": "480e76603b52368a322619851c17da7525c9a236488110d13e3325c8c2ed3dcb",
+        "platform/39-redis-cert/manifests/redis-cert.yaml": "97ec54a372ac41cfc00990a59d9870202811fdc520019da2efc402f0eb90a44a",
+        "platform/40-kafka-operator/application.yaml": "44f26297061333fb0c64cd6e3ba8e6560affff726bb42fb9443ce7161a7509a9",
+        "platform/40-redis/application.yaml": "ebdd923733c26469617269a24e178242c8a91914b041bb1945c83ac483b4fb0f",
+        "platform/50-kafka-cluster/manifests/kafka-users.yaml": "07ea3f72fa9b8fe8b9a8efbedf332f56186f61f06e5aa3f8706bad9262f95443",
+        "platform/50-kafka-cluster/manifests/kafka.yaml": "0e6ff3ace1fdc4ded9625ec3554ed5fcf28b8aae5d6e759886e08bb63589f644",
+        "platform/91-external-secrets-config/manifests/redis-credentials.yaml": "455c01a3c376cdb60ebbbeabe00de56f596a8ca892e291a306823c45c0f1c050"
+      }
+    }
+  ]
+}

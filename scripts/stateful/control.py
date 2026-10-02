@@ -30,7 +30,7 @@ def source_hashes():
              "platform/00-internal-ca/manifests/internal-ca.yaml", "platform/39-redis-cert/manifests/redis-cert.yaml")
     hashes = {p: sha((GITOPS / p).read_bytes()) for p in paths}
     # Qualification is tied to executable recovery code, not only the topology file.
-    for p in ("bootstrap.py", "kafka.py", "redis_cart.py", "common.py", "cnpg.py", "maintenance.py", "control.py"):
+    for p in ("bootstrap.py", "kafka.py", "redis_cart.py", "common.py", "cnpg.py", "maintenance.py", "control.py", "recovery-compatibility.json"):
         hashes["infra/scripts/stateful/" + p] = sha((Path(__file__).parent / p).read_bytes())
     for p in ("cnpg-s3-backup.sh", "restore-cnpg-before-gitops.sh"):
         hashes["infra/scripts/" + p] = sha((ROOT / "scripts" / p).read_bytes())
@@ -40,6 +40,14 @@ def source_hashes():
 def compatible_source(recorded):
     current = source_hashes()
     if recorded == current:
+        return True
+    # Match an entire reviewed source combination, including the replacement code.
+    # Exclude this map's own digest from its replacement set to avoid self-reference.
+    mapping_key = "infra/scripts/stateful/recovery-compatibility.json"
+    replacement = {path: value for path, value in current.items() if path != mapping_key}
+    mappings = load(Path(__file__).parent / "recovery-compatibility.json")
+    if any(recorded == entry["sourceHashes"] and replacement == entry["replacementSourceHashes"]
+           for entry in mappings["migrations"]):
         return True
     # These revisions use the same data/identity verification procedure. The
     # common.py handles absent namespaces/CRDs on rebuilt clusters; bootstrap.py

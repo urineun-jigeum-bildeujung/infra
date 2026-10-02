@@ -5,7 +5,7 @@
 #   AWS_PROFILE=petflow-terraform-<사용자> ./tplan.sh
 #   AWS_PROFILE=petflow-terraform-<사용자> ./tapply.sh
 #   AWS_PROFILE=petflow-terraform-<사용자> ./tapply.sh --finish
-# --finish: 복원/서비스 배포 완료 후 Grafana 계정과 Web DNS/HTTPS 마무리만 재실행.
+# --finish: 복원/서비스 배포 완료 후 Grafana ALB/DNS·계정과 Web DNS/HTTPS 마무리 재실행.
 #
 # GitOps가 기본 위치(../gitops)가 아니면 GITOPS_DIR로 재정의한다.
 # DNS 적용을 의도적으로 제외할 때만 APPLY_WEB_DNS=false를 사용한다.
@@ -48,6 +48,8 @@ esac
 source "${SCRIPT_DIR}/scripts/lib/jenkins-diagnostics.sh"
 # shellcheck source=scripts/lib/autoscaling-guards.sh
 source "${SCRIPT_DIR}/scripts/lib/autoscaling-guards.sh"
+# shellcheck source=scripts/lib/gitops-recovery.sh
+source "${SCRIPT_DIR}/scripts/lib/gitops-recovery.sh"
 
 cleanup() {
   if [[ -n "${TEMP_DNS_PLAN}" && -f "${TEMP_DNS_PLAN}" ]]; then
@@ -666,9 +668,12 @@ print_final_summary() {
   log "=============================================="
 }
 
-for command_name in aws terraform kubectl helm task git jq curl flock; do
+for command_name in aws terraform kubectl helm task git jq curl flock python3; do
   require_command "${command_name}"
 done
+
+python3 -c "import yaml" >/dev/null 2>&1 \
+  || fail "PyYAML이 필요합니다. python3 -m pip install PyYAML로 준비하세요."
 
 # shellcheck source=scripts/lib/terraform-auth.sh
 source "${SCRIPT_DIR}/scripts/lib/terraform-auth.sh"
@@ -747,12 +752,16 @@ log "[6/18] Jenkins 필수 Secret 준비와 키 검증"
 prepare_jenkins_credentials
 
 log "[7/18] GitOps Bootstrap"
+log "Trivy 기존 캐시 EBS 재연결 준비"
+bash "${SCRIPT_DIR}/scripts/prepare-trivy-cache.sh"
 if ! (
   cd "${GITOPS_DIR}"
-  task bootstrap:core
+  task bootstrap:argocd || exit $?
+  prepare_gitops_dependencies || exit $?
+  task bootstrap:root-app
 ); then
   diagnose_gitops
-  fail "GitOps bootstrap:core 실행에 실패했습니다."
+  fail "GitOps Argo CD/namespace/project/root-app bootstrap 실행에 실패했습니다."
 fi
 
 log "[8/18] KEDA GitOps Sync와 External Metrics API 준비 대기"
@@ -766,6 +775,9 @@ if ! wait_for_karpenter "${cluster_name}" "${aws_region}"; then
 fi
 
 log "[10/18] 서비스 HPA/PDB와 payment KEDA 대상 준비 대기"
+if ! wait_for_service_gitops_sync; then
+  fail "서비스 GitOps 동기화 또는 Web ExternalSecret 준비에 실패했습니다. Application 오류를 확인하세요."
+fi
 if ! wait_for_autoscaling_targets "${cluster_name}" "${aws_region}"; then
   fail "서비스 HPA/PDB/ScaledObject가 제한 시간 내 준비되지 않았습니다."
 fi
@@ -800,9 +812,13 @@ else
   cluster_name="$(terraform -chdir="${TERRAFORM_DIR}" output -raw eks_cluster_name)"
   aws_region="$(terraform -chdir="${TERRAFORM_DIR}" output -raw aws_region)"
   [[ "${aws_region}" == "${EXPECTED_AWS_REGION}" ]] || fail "Terraform output Region 불일치: ${aws_region}"
+  log "Grafana Public ALB/DNS/HTTPS 검증 마무리"
+  APPLY_OBSERVABILITY_DNS="${APPLY_OBSERVABILITY_DNS}" \
+    PETFLOW_INTERNAL_ORCHESTRATOR=true \
+    "${SCRIPT_DIR}/scripts/configure-observability-access.sh"
   log "[16/18] Grafana 관리자 인증과 security-audit 계정 준비"
 fi
-KUBE_CONTEXT="${KUBECONFIG_CONTEXT}" python3 "${SCRIPT_DIR}/scripts/reconcile-grafana-admin.py"
+KUBE_CONTEXT="${KUBECONFIG_CONTEXT}" bash "${SCRIPT_DIR}/scripts/reconcile-grafana-admin.sh"
 if ! (
   cd "${GITOPS_DIR}"
   task bootstrap:grafana-audit-user KUBE_CONTEXT="${KUBECONFIG_CONTEXT}"

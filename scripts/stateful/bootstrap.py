@@ -147,6 +147,12 @@ def restore_kafka(state, journal_path):
                 "Kafka PVC already uses another volume")
         existing_pv = get("pv", pv_name)
         require(not existing_pv or existing_pv["spec"]["csi"]["volumeHandle"] == volume_id, "Kafka PV identity mismatch")
+        # AWS Backup restore does not supply the CSI tags required for DeleteVolume.
+        # Tag only the verified restore-job output, after checking the PV/PVC identity.
+        aws("ec2", "create-tags", "--resources", volume_id, "--tags",
+            "Key=ebs.csi.aws.com/cluster,Value=true",
+            "Key=kubernetes.io/created-for/pvc/name,Value=" + name,
+            "Key=kubernetes.io/created-for/pvc/namespace,Value=" + namespace)
         pv = {"apiVersion": "v1", "kind": "PersistentVolume", "metadata": {"name": pv_name}, "spec": {
             "capacity": {"storage": str(source["sizeGiB"]) + "Gi"}, "accessModes": ["ReadWriteOnce"],
             "persistentVolumeReclaimPolicy": "Delete", "storageClassName": "gp3", "volumeMode": "Filesystem",

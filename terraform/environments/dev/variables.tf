@@ -106,7 +106,7 @@ variable "eks_cluster_version" {
 variable "eks_endpoint_public_access" {
   description = "EKS API 서버의 Public Endpoint 활성화 여부"
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "eks_endpoint_private_access" {

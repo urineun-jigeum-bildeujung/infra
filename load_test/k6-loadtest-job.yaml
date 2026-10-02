@@ -1,0 +1,76 @@
+# k6-loadtest-job.yaml
+#
+# default-deny NetworkPolicy 때문에 로컬 PC에서 서비스로 직접 부하를 못 준다.
+# k6를 같은 네임스페이스 안에 Job으로 띄워서, 클러스터 내부 트래픽으로 부하를 준다.
+#
+# 사용법:
+#   1. 아래 <NAMESPACE> 4곳(metadata.namespace, PATH 등)을 대상 서비스로 바꿔서
+#      auth-service, member-service, product-service, review-service 각각에 대해
+#      하나씩 적용한다. (동시에 4개를 다 돌리면 DB 커넥션이 한 번에 몰리므로
+#      하나씩 순서대로 돌리는 것을 권장.)
+#   2. kubectl create configmap k6-script --from-file=k6-loadtest.js -n <NAMESPACE>
+#   3. kubectl apply -f k6-loadtest-job.yaml -n <NAMESPACE>
+#   4. kubectl logs -f job/k6-loadtest -n <NAMESPACE>
+#   5. 끝나면 정리: kubectl delete job k6-loadtest -n <NAMESPACE>
+#                  kubectl delete configmap k6-script -n <NAMESPACE>
+#
+# 만약 Job 파드가 서비스에 접속을 못 하면(타임아웃), default-deny NetworkPolicy가
+# 같은 네임스페이스 안의 트래픽까지 막고 있는 것이다. 이 경우 팀에 "테스트 기간
+# 동안만 네임스페이스 내부 트래픽을 허용해달라"고 요청하거나, 아래 NetworkPolicy를
+# 함께 적용해야 한다 (팀 컨벤션에 맞는지 먼저 확인 후 적용할 것).
+
+apiVersion: v1
+kind: Job
+metadata:
+  name: k6-loadtest
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: k6
+          image: grafana/k6:latest
+          command: ["k6", "run", "/scripts/k6-loadtest.js"]
+          env:
+            # generic-service는 같은 네임스페이스 안에 있으므로 서비스 이름만으로 접근 가능
+            - name: BASE_URL
+              value: "http://generic-service"
+            # TODO: 실제 CPU를 쓰는 엔드포인트로 교체 (헬스체크 경로는 부하 테스트 의미 없음)
+            - name: PATH
+              value: "/"
+            # 핫타임(플래시 세일) 시나리오 파라미터
+            - name: BASELINE_VUS
+              value: "2"
+            - name: PEAK_VUS
+              value: "30"
+            - name: RAMP_UP_TIME
+              value: "15s"   # 이벤트 시작 후 15초 안에 피크까지 급증
+            - name: HOT_TIME
+              value: "3m"    # 피크 유지 시간
+            - name: RAMP_DOWN_TIME
+              value: "1m"
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+      volumes:
+        - name: script
+          configMap:
+            name: k6-script
+
+---
+# 참고용 - default-deny에 막힐 경우에만 적용 (팀 확인 후)
+# 같은 네임스페이스 안에서 오는 트래픽만 generic-service로 허용
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-intra-namespace-loadtest
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: generic-service
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {} # 같은 네임스페이스의 모든 파드 (k6 Job 포함)

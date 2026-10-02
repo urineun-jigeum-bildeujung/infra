@@ -47,3 +47,6 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+load_test/loadtest-logs/
+load_test/results/

@@ -131,6 +131,18 @@ AWS_PROFILE=ujibil2 \
 
 ## Jenkins 기동 Guard와 진단
 
+Jenkins 단계에서 중단된 실행은 `AWS_PROFILE=ujibil2 ./tapply.sh --from-jenkins`로 재개한다.
+현재 실행이 종료되어 인프라 Lock이 해제된 뒤 실행한다. Terraform Apply·이미지 준비·데이터 복원·
+GitOps Bootstrap을 생략하며, 복원 완료 marker와 현재 데이터 저장소 Ready 상태 및
+KEDA·Karpenter·서비스 준비 조건을 다시 확인한 뒤 11단계부터 이어간다.
+`--finish`는 Jenkins 재개용이 아니라 Grafana/DNS 마무리용이다.
+
+Application이 `Synced/Progressing`이어도 `sever-ci-gradle-cache` PVC만
+`gp3/WaitForFirstConsumer`의 미사용 Pending 상태이면 통과할 수 있다. 다른 PVC는 Bound,
+StatefulSet은 최신 세대·revision과 모든 replica가 준비되고 Ingress 주소가 있어야 한다.
+Application 오류·진행 중인 sync·다른 비정상 health 또는 알 수 없는 workload는 허용하지 않는다.
+Jenkins StatefulSet/Service Endpoint 검사도 계속 수행한다. 빌드 Pod 유무는 준비 조건이 아니다.
+
 Jenkins Controller는 GitOps가 관리하는 플러그인 내장 ECR image digest를 사용한다. Infra는 `petflow/jenkins-controller` Repository를 보존 ECR 목록에 포함하므로 DEV `tdestroy.sh` 이후에도 이미지를 유지한다. 새 PVC 기동 시 Helm `controller.installPlugins=false`가 적용되어 init container가 외부 plugin mirror에서 플러그인을 다시 받지 않아야 한다.
 
 `tapply.sh`는 기본 900초 동안 Jenkins Application `Synced/Healthy`, StatefulSet Ready와 준비된 Endpoint를 기다린다. `JENKINS_READY_TIMEOUT_SECONDS`, `JENKINS_READY_POLL_INTERVAL_SECONDS`, `JENKINS_DIAGNOSTIC_LOG_TAIL_LINES`는 양의 정수로만 재정의할 수 있다. 제한 시간을 넘기면 Pod/init 상태·종료 코드·재시작 횟수·PVC·Event와 필터링된 현재/이전 init 로그를 출력하고 실패 종료한다. 원인은 `PLUGIN_DOWNLOAD_NETWORK`, `PLUGIN_DOWNLOAD_HTTP`, `PLUGIN_DOWNLOAD`, `IMAGE_PULL`, `PVC_OR_VOLUME`, `SCHEDULING`, `JCASC`, `UNKNOWN`으로 구분한다. Secret 원문과 전체 환경 설정은 출력하지 않으며 Pod 자동 삭제나 무한 재시도도 하지 않는다. 원인을 처리한 뒤 동일한 `./tapply.sh`를 재실행하면 완료된 단계는 멱등하게 유지된다.

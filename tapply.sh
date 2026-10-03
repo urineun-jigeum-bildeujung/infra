@@ -5,6 +5,7 @@
 #   AWS_PROFILE=petflow-terraform-<사용자> ./tplan.sh
 #   AWS_PROFILE=petflow-terraform-<사용자> ./tapply.sh
 #   AWS_PROFILE=petflow-terraform-<사용자> ./tapply.sh --finish
+#   AWS_PROFILE=petflow-terraform-<사용자> ./tapply.sh --from-jenkins
 # --finish: 복원/서비스 배포 완료 후 Grafana ALB/DNS·계정과 Web DNS/HTTPS 마무리 재실행.
 #
 # GitOps가 기본 위치(../gitops)가 아니면 GITOPS_DIR로 재정의한다.
@@ -37,15 +38,19 @@ JENKINS_DIAGNOSTIC_LOG_TAIL_LINES="${JENKINS_DIAGNOSTIC_LOG_TAIL_LINES:-200}"
 AUTOSCALING_READY_TIMEOUT_SECONDS="${AUTOSCALING_READY_TIMEOUT_SECONDS:-900}"
 AUTOSCALING_READY_POLL_INTERVAL_SECONDS="${AUTOSCALING_READY_POLL_INTERVAL_SECONDS:-10}"
 FINISH_ONLY=false
+FROM_JENKINS=false
 case "${1:-}" in
   "") [[ $# == 0 ]] || { printf '[tapply] ERROR: 빈 인자는 지원하지 않습니다.\n' >&2; exit 1; } ;;
   --finish) FINISH_ONLY=true; shift ;;
-  *) printf '[tapply] ERROR: 사용법: ./tapply.sh [--finish]\n' >&2; exit 1 ;;
+  --from-jenkins) FROM_JENKINS=true; shift ;;
+  *) printf '[tapply] ERROR: 사용법: ./tapply.sh [--finish|--from-jenkins]\n' >&2; exit 1 ;;
 esac
-[[ $# == 0 ]] || { printf '[tapply] ERROR: 사용법: ./tapply.sh [--finish]\n' >&2; exit 1; }
+[[ $# == 0 ]] || { printf '[tapply] ERROR: 사용법: ./tapply.sh [--finish|--from-jenkins]\n' >&2; exit 1; }
 
 # shellcheck source=scripts/lib/jenkins-diagnostics.sh
 source "${SCRIPT_DIR}/scripts/lib/jenkins-diagnostics.sh"
+# shellcheck source=scripts/lib/jenkins-readiness.sh
+source "${SCRIPT_DIR}/scripts/lib/jenkins-readiness.sh"
 # shellcheck source=scripts/lib/autoscaling-guards.sh
 source "${SCRIPT_DIR}/scripts/lib/autoscaling-guards.sh"
 # shellcheck source=scripts/lib/gitops-recovery.sh
@@ -311,6 +316,7 @@ wait_for_jenkins() {
   local desired_count
   local ready_count
   local endpoint_count
+  local cache_exception
 
   deadline=$(($(date +%s) + JENKINS_READY_TIMEOUT_SECONDS))
   log "Jenkins 준비 Guard 시작: timeout=${JENKINS_READY_TIMEOUT_SECONDS}s, poll=${JENKINS_READY_POLL_INTERVAL_SECONDS}s"
@@ -328,11 +334,21 @@ wait_for_jenkins() {
       | jq '[.items[].endpoints[]? | select(.conditions.ready == true)] | length' \
       || printf '0')"
 
-    if [[ "${sync_status}" == "Synced" && "${health_status}" == "Healthy" \
+    cache_exception=false
+    if [[ "${sync_status}" == "Synced" && "${health_status}" == "Progressing" \
+      && "${desired_count}" =~ ^[1-9][0-9]*$ && "${ready_count:-0}" == "${desired_count}" \
+      && "${endpoint_count}" =~ ^[1-9][0-9]*$ ]] && jenkins_unused_cache_ready; then
+      cache_exception=true
+    fi
+    if [[ "${sync_status}" == "Synced" \
+      && ( "${health_status}" == "Healthy" || "${cache_exception}" == true ) \
       && "${desired_count}" =~ ^[1-9][0-9]*$ \
       && "${ready_count:-0}" == "${desired_count}" \
       && "${endpoint_count}" =~ ^[1-9][0-9]*$ ]]; then
       JENKINS_CI_STATUS="ready (statefulSet=${ready_count}/${desired_count}, endpoints=${endpoint_count}, scan=2m)"
+      if [[ "${cache_exception}" == true ]]; then
+        log 'Jenkins 본체 준비 완료. 미사용 Gradle 캐시의 WaitForFirstConsumer만 허용합니다.'
+      fi
       log "Jenkins CI 준비 완료: ${JENKINS_CI_STATUS}"
       return
     fi
@@ -720,6 +736,7 @@ flock -n 9 || fail "다른 PetFlow 인프라 Apply/Destroy 작업이 실행 중�
 log "인프라 작업 Lock 획득: ${LOCK_FILE}"
 
 if [[ "${FINISH_ONLY}" == false ]]; then
+if [[ "${FROM_JENKINS}" == false ]]; then
 log "[1/18] Terraform DEV Apply와 PostgreSQL 이미지 준비"
 PETFLOW_INTERNAL_ORCHESTRATOR=true "${SCRIPT_DIR}/scripts/apply-infra.sh"
 
@@ -762,6 +779,22 @@ if ! (
 ); then
   diagnose_gitops
   fail "GitOps Argo CD/namespace/project/root-app bootstrap 실행에 실패했습니다."
+fi
+else
+  log 'Jenkins 단계부터 재개: Terraform Apply·이미지 준비·복원·GitOps Bootstrap 생략'
+  cluster_name="$(terraform -chdir="${TERRAFORM_DIR}" output -raw eks_cluster_name)"
+  aws_region="$(terraform -chdir="${TERRAFORM_DIR}" output -raw aws_region)"
+  [[ "${aws_region}" == "${EXPECTED_AWS_REGION}" ]] || fail "Terraform output Region 불일치: ${aws_region}"
+  aws eks update-kubeconfig --name "${cluster_name}" --region "${aws_region}" \
+    --alias "${KUBECONFIG_CONTEXT}" >/dev/null
+  kubectl config use-context "${KUBECONFIG_CONTEXT}" >/dev/null
+  wait_for_eks_readyz
+  phase="$(kubectl --context "${KUBECONFIG_CONTEXT}" --request-timeout=30s \
+    -n database get configmap stateful-recovery -o jsonpath='{.data.phase}')"
+  [[ "${phase}" == ready ]] || fail '복원 완료 기록이 없습니다. 전체 tapply.sh를 실행하세요.'
+  # The ready marker makes this a live readiness check, never a fresh restore.
+  GITOPS_DIR="${GITOPS_DIR}" bash "${SCRIPT_DIR}/scripts/stateful-restore.sh"
+  log '기존 KEDA·Karpenter·서비스 준비 조건을 다시 확인합니다.'
 fi
 
 log "[8/18] KEDA GitOps Sync와 External Metrics API 준비 대기"

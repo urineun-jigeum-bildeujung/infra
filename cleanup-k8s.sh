@@ -306,11 +306,40 @@ delete_alloy_resources() {
   fi
 }
 
+delete_prometheus_resources() {
+  local crd_name
+  local resource_name
+  local crd_resource
+
+  if ! namespace_exists observability; then
+    return
+  fi
+
+  # Operator가 StatefulSet/Pod를 재생성하지 않도록 CR을 먼저 삭제한다.
+  # Pod가 재생성되면 pvc-protection이 PVC 삭제를 계속 막는다.
+  while IFS=$'\t' read -r crd_name resource_name; do
+    if ! crd_resource="$("${KUBECTL[@]}" get crd "${crd_name}" \
+      --ignore-not-found -o name)"; then
+      echo "[cleanup-k8s] Prometheus CRD 존재 여부를 확인하지 못했습니다: ${crd_name}" >&2
+      return 1
+    fi
+    if [[ -n "${crd_resource}" ]]; then
+      echo "[cleanup-k8s] Prometheus Operator Resource 삭제: ${resource_name}"
+      "${KUBECTL[@]}" delete "${resource_name}" --all --namespace observability \
+        --ignore-not-found --wait=true --timeout=10m || return 1
+    fi
+  done <<'PROMETHEUS_RESOURCES'
+prometheuses.monitoring.coreos.com	prometheuses.monitoring.coreos.com
+alertmanagers.monitoring.coreos.com	alertmanagers.monitoring.coreos.com
+PROMETHEUS_RESOURCES
+}
+
 delete_persistent_workloads() {
   local namespace
 
   delete_strimzi_resources
   delete_alloy_resources
+  delete_prometheus_resources
 
   for namespace in "${PERSISTENT_NAMESPACES[@]}"; do
     if ! namespace_exists "${namespace}"; then
@@ -368,7 +397,7 @@ verify_persistent_storage_cleanup() {
 
     for attempt in {1..60}; do
       if ! pv_resource="$("${KUBECTL[@]}" get pv "${pv_name}" \
-        --ignore-not-found -o name)"; then
+        --ignore-not-found -o json)"; then
         echo "[cleanup-k8s] PV 상태를 확인하지 못했습니다: ${pv_name}" >&2
         return 1
       fi
@@ -379,7 +408,9 @@ verify_persistent_storage_cleanup() {
         break
       fi
 
-      phase="$("${KUBECTL[@]}" get pv "${pv_name}" -o jsonpath='{.status.phase}')"
+      # 같은 조회 결과에서 phase를 읽는다. 두 get 사이에 PV가 삭제되면
+      # 정상 정리가 NotFound로 중단되므로 존재 확인과 상태 조회를 한 번에 수행한다.
+      phase="$(jq -r '.status.phase // "unknown"' <<< "${pv_resource}")" || return 1
       echo "[cleanup-k8s] PV 삭제 대기 중: ${pv_name}, phase=${phase:-unknown}"
       sleep 5
     done

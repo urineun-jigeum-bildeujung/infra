@@ -30,16 +30,21 @@ def assert_no_clients():
 def fingerprints():
     result = {}
     for database in DATABASES:
-        names = query(database, "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename;").splitlines()
         result[database] = {}
-        for name in names:
-            # SQL identifiers originate in pg_catalog and are quoted, never shell-interpolated.
-            quoted = '"' + name.replace('"', '""') + '"'
-            sql = ("SET TIME ZONE 'UTC'; SELECT json_build_object('count',count(*),"
-                   "'sha',md5(coalesce(string_agg(h,'' ORDER BY h),''))) FROM "
-                   "(SELECT md5(row_to_json(t)::text) AS h FROM public." + quoted + " AS t) s;")
-            raw = query(database, sql).splitlines()[-1]
-            result[database][name] = json.loads(raw)
+        schemas = ("public", "repurchase") if database == "repurchase_db" else ("public",)
+        for schema in schemas:
+            names = query(database, "SELECT tablename FROM pg_tables WHERE schemaname='" +
+                          schema + "' ORDER BY tablename;").splitlines()
+            for name in names:
+                # SQL identifiers originate in pg_catalog and are quoted, never shell-interpolated.
+                quoted = '"' + name.replace('"', '""') + '"'
+                sql = ("SET TIME ZONE 'UTC'; SELECT json_build_object('count',count(*),"
+                       "'sha',md5(coalesce(string_agg(h,'' ORDER BY h),''))) FROM "
+                       "(SELECT md5(row_to_json(t)::text) AS h FROM " + schema + "." + quoted + " AS t) s;")
+                raw = query(database, sql).splitlines()[-1]
+                # Keep existing public keys; qualify additional schemas to avoid collisions.
+                key = name if schema == "public" else schema + "." + name
+                result[database][key] = json.loads(raw)
     return result
 
 

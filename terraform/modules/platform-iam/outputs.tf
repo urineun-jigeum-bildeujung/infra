@@ -62,3 +62,21 @@ output "external_secrets_service_account" {
     name      = aws_eks_pod_identity_association.external_secrets.service_account
   }
 }
+
+output "repurchase_model_reader_role_arn" {
+  description = "재구매 Job의 S3 모델 읽기용 Pod Identity IAM Role ARN"
+  value       = aws_iam_role.repurchase_model_reader.arn
+}
+
+output "repurchase_model_reader_pod_identity_association_id" {
+  description = "repurchase/generic-service용 Pod Identity Association ID"
+  value       = aws_eks_pod_identity_association.repurchase_model_reader.association_id
+}
+
+output "repurchase_model_reader_service_account" {
+  description = "재구매 Job과 GitOps가 사용해야 하는 Namespace/ServiceAccount"
+  value = {
+    namespace = aws_eks_pod_identity_association.repurchase_model_reader.namespace
+    name      = aws_eks_pod_identity_association.repurchase_model_reader.service_account
+  }
+}

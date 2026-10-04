@@ -146,4 +146,5 @@ ecr_repository_names = [
   "notification-service",
   "review-service",
   "web",
+  "repurchase"
 ]

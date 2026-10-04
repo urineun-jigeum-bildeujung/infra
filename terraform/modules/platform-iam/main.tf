@@ -16,6 +16,7 @@
 #   | External Secrets Operator    | external-secrets | external-secrets        |
 #   | Trivy Operator                | trivy-system | trivy-operator              |
 #   | recommendation (모델 아티팩트 읽기) | recommendation | generic-service        |
+#   | repurchase (모델 아티팩트 읽기) | repurchase | generic-service               |
 #
 # 관리 대상 (DEV 생명주기 — destroy/apply 반복 가능):
 #   - ALB Controller: Role + 공식 Policy + Pod Identity Association
@@ -32,6 +33,8 @@
 #     이미지에 넣지 않고 기동 시 S3에서 받아오는 방식으로 전환하면서 신설
 #     (2026-10-01, AI팀 요청 — 모델 아티팩트가 어디에도 없어 추천 API가 전부
 #     500으로 실패하던 문제의 해결책).
+#   - repurchase: repurchase/* 모델 읽기 Role/Policy/Pod Identity는
+#     repurchase-model-reader.tf에서 관리한다. 서비스 계정은 GitOps platform이 준비한다.
 #
 # 이번 범위에서 제외:
 #   - Karpenter Interruption Queue (SQS) — Spot 중단 대응이 필요해지면 추가

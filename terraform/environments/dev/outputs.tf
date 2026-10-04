@@ -324,3 +324,18 @@ output "cnpg_ebs_backup_tag" {
   description = "GitOps gp3-cnpg StorageClass와 일치해야 하는 EBS 선택 태그"
   value       = module.ebs_backup.backup_tag
 }
+
+output "repurchase_model_reader_role_arn" {
+  description = "재구매 Job의 repurchase/* 모델 읽기용 IAM Role ARN"
+  value       = module.platform_iam.repurchase_model_reader_role_arn
+}
+
+output "repurchase_model_reader_pod_identity_association_id" {
+  description = "재구매 모델 읽기용 Pod Identity Association ID"
+  value       = module.platform_iam.repurchase_model_reader_pod_identity_association_id
+}
+
+output "repurchase_model_reader_service_account" {
+  description = "재구매 수동 Job/CronJob이 사용해야 하는 Namespace/ServiceAccount"
+  value       = module.platform_iam.repurchase_model_reader_service_account
+}

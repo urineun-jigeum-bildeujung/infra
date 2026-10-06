@@ -55,10 +55,10 @@ APPLY_OBSERVABILITY_DNS=false AWS_PROFILE=ujibil2 ./tapply.sh
 6. Jenkins Application, StatefulSet Ready와 준비된 Service Endpoint를 기다린다.
 7. Controller와 cert-manager Application, Deployment, Certificate, Webhook Endpoint를 기다린다.
 8. Web Ingress와 `petflow-dev-public` Public ALB를 기다리고 Target Health를 검증한다.
-9. Argo CD·Jenkins Ingress가 `petflow-dev-management` Internal ALB 하나를 공유할 때까지 기다린다.
-10. Management ALB/SG/ACM/두 Host Rule, backend protocol과 Target Health를 검증하고 두 Alias를 적용한다.
-11. `grafana-public`의 Public ALB/VPC/태그/ACM/Target Health와 Prometheus 비공개 정책을 검증한다.
-12. Web DNS Alias와 공개 HTTPS를 검증한다.
+9. Web DNS Alias를 현재 Public ALB로 갱신하고 공개 HTTP/HTTPS를 검증한다.
+10. Argo CD·Jenkins Ingress가 `petflow-dev-management` Internal ALB 하나를 공유할 때까지 기다린다.
+11. Management ALB/SG/ACM/두 Host Rule, backend protocol과 Target Health를 검증하고 두 Alias를 적용한다.
+12. `grafana-public`의 Public ALB/VPC/태그/ACM/Target Health와 Prometheus 비공개 정책을 검증한다.
 13. Web·Grafana·Argo CD·Jenkins와 Jenkins CI 준비 상태를 구분해 최종 출력한다.
 
 ## GitOps Checkout Guard
@@ -78,6 +78,10 @@ Guard가 실패하면 사용자가 변경사항을 확인한 뒤 직접 branch �
 ## DNS Guard
 
 DNS 단계는 다음 조건을 모두 통과한 뒤에만 실행한다.
+
+Web DNS는 Public ALB와 Target Health 검증 직후에 갱신한다. 따라서 이후 Management 또는
+Grafana 단계가 실패하더라도 `leechs.shop`이 삭제된 이전 ALB를 계속 가리키는 시간을 줄인다.
+`--finish`도 Web DNS/HTTPS를 먼저 복구한 뒤 Grafana 검증과 계정 준비를 수행한다.
 
 Public Web:
 
@@ -135,7 +139,7 @@ Jenkins 단계에서 중단된 실행은 `AWS_PROFILE=ujibil2 ./tapply.sh --from
 현재 실행이 종료되어 인프라 Lock이 해제된 뒤 실행한다. Terraform Apply·이미지 준비·데이터 복원·
 GitOps Bootstrap을 생략하며, 복원 완료 marker와 현재 데이터 저장소 Ready 상태 및
 KEDA·Karpenter·서비스 준비 조건을 다시 확인한 뒤 11단계부터 이어간다.
-`--finish`는 Jenkins 재개용이 아니라 Grafana/DNS 마무리용이다.
+`--finish`는 Jenkins 재개용이 아니라 Web DNS/HTTPS와 Grafana 마무리용이다.
 
 Application이 `Synced/Progressing`이어도 `sever-ci-gradle-cache` PVC만
 `gp3/WaitForFirstConsumer`의 미사용 Pending 상태이면 통과할 수 있다. 다른 PVC는 Bound,

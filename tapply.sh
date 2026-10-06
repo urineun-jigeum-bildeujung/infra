@@ -6,7 +6,7 @@
 #   AWS_PROFILE=petflow-terraform-<사용자> ./tapply.sh
 #   AWS_PROFILE=petflow-terraform-<사용자> ./tapply.sh --finish
 #   AWS_PROFILE=petflow-terraform-<사용자> ./tapply.sh --from-jenkins
-# --finish: 복원/서비스 배포 완료 후 Grafana ALB/DNS·계정과 Web DNS/HTTPS 마무리 재실행.
+# --finish: 복원/서비스 배포 완료 후 Web DNS/HTTPS와 Grafana ALB/DNS·계정 마무리 재실행.
 #
 # GitOps가 기본 위치(../gitops)가 아니면 GITOPS_DIR로 재정의한다.
 # DNS 적용을 의도적으로 제외할 때만 APPLY_WEB_DNS=false를 사용한다.
@@ -652,6 +652,18 @@ verify_public_web() {
   fail "leechs.shop 공개 HTTP/HTTPS 검증 시간이 초과됐습니다."
 }
 
+reconcile_web_dns_and_verify() {
+  local aws_region="$1"
+
+  if [[ "${APPLY_WEB_DNS}" == true ]]; then
+    apply_web_dns "${aws_region}"
+    verify_public_web
+  else
+    log "APPLY_WEB_DNS=false이므로 DNS Apply를 생략했습니다."
+    log "ALB/Target Guard는 통과했습니다. DNS까지 복구하려면 APPLY_WEB_DNS=true로 실행하세요."
+  fi
+}
+
 print_final_summary() {
   local cluster_name="$1"
   local aws_region="$2"
@@ -827,17 +839,20 @@ wait_for_web_alb "${aws_region}"
 log "[14/18] Public Web ALB Target Health 검증"
 verify_target_health "${aws_region}"
 
-log "[15/18] Argo CD·Jenkins Management Internal ALB·Target·Route53·TLS Guard"
+log "[15/18] Web Route53 Alias와 공개 HTTPS"
+reconcile_web_dns_and_verify "${aws_region}"
+
+log "[16/18] Argo CD·Jenkins Management Internal ALB·Target·Route53·TLS Guard"
 APPLY_MANAGEMENT_DNS="${APPLY_MANAGEMENT_DNS}" \
   PETFLOW_INTERNAL_ORCHESTRATOR=true \
   "${SCRIPT_DIR}/scripts/configure-management-access.sh"
 
-log "[16/18] Grafana Public ALB Target·Route53·HTTPS 및 Prometheus 비공개 Guard"
+log "[17/18] Grafana Public ALB Target·Route53·HTTPS 및 Prometheus 비공개 Guard"
 APPLY_OBSERVABILITY_DNS="${APPLY_OBSERVABILITY_DNS}" \
   PETFLOW_INTERNAL_ORCHESTRATOR=true \
   "${SCRIPT_DIR}/scripts/configure-observability-access.sh"
 else
-  log "마무리만 실행: Grafana 계정 준비, Web DNS/HTTPS, 최종 상태 확인"
+  log "마무리만 실행: Web DNS/HTTPS, Grafana ALB/DNS·계정, 최종 상태 확인"
   phase="$(kubectl --context "${KUBECONFIG_CONTEXT}" --request-timeout=30s \
     -n database get configmap stateful-recovery -o jsonpath='{.data.phase}')"
   [[ "${phase}" == ready ]] || fail "데이터 복원이 완료되지 않았습니다. 전체 tapply.sh를 먼저 실행하세요."
@@ -845,12 +860,14 @@ else
   cluster_name="$(terraform -chdir="${TERRAFORM_DIR}" output -raw eks_cluster_name)"
   aws_region="$(terraform -chdir="${TERRAFORM_DIR}" output -raw aws_region)"
   [[ "${aws_region}" == "${EXPECTED_AWS_REGION}" ]] || fail "Terraform output Region 불일치: ${aws_region}"
-  log "Grafana Public ALB/DNS/HTTPS 검증 마무리"
+  log "[15/18] Web Route53 Alias와 공개 HTTPS"
+  reconcile_web_dns_and_verify "${aws_region}"
+  log "[17/18] Grafana Public ALB/DNS/HTTPS 검증 마무리"
   APPLY_OBSERVABILITY_DNS="${APPLY_OBSERVABILITY_DNS}" \
     PETFLOW_INTERNAL_ORCHESTRATOR=true \
     "${SCRIPT_DIR}/scripts/configure-observability-access.sh"
-  log "[16/18] Grafana 관리자 인증과 security-audit 계정 준비"
 fi
+log "Grafana 관리자 인증과 security-audit 계정 준비"
 KUBE_CONTEXT="${KUBECONFIG_CONTEXT}" bash "${SCRIPT_DIR}/scripts/reconcile-grafana-admin.sh"
 if ! (
   cd "${GITOPS_DIR}"
@@ -859,15 +876,6 @@ if ! (
   fail "Grafana security-audit 계정 bootstrap에 실패했습니다. AWS Secrets Manager 권한과 Grafana 관리자 Secret을 확인한 뒤 tapply.sh를 재실행하세요."
 fi
 log "Grafana security-audit 계정 bootstrap 완료 (비밀번호는 AWS Secrets Manager에 보존)"
-
-log "[17/18] Web Route53 Alias와 공개 HTTPS"
-if [[ "${APPLY_WEB_DNS}" == true ]]; then
-  apply_web_dns "${aws_region}"
-  verify_public_web
-else
-  log "APPLY_WEB_DNS=false이므로 DNS Apply를 생략했습니다."
-  log "ALB/Target Guard는 통과했습니다. DNS까지 복구하려면 APPLY_WEB_DNS=true로 실행하세요."
-fi
 
 log "[18/18] 최종 상태 요약"
 print_final_summary "${cluster_name}" "${aws_region}"

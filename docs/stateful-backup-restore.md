@@ -121,10 +121,10 @@ Terraform state에 존재했던 `ml-artifacts` 버킷을 DEV의 보존 버킷 �
 
 ## apply / 재실행
 
-데이터 복원과 서비스 배포가 이미 완료됐고 마지막 Grafana 계정/Web DNS/HTTPS
+데이터 복원과 서비스 배포가 이미 완료됐고 마지막 Web DNS/HTTPS·Grafana 계정
 단계만 실패했다면 `AWS_PROFILE=petflow-terraform-<사용자> ./tapply.sh --finish`로
 마무리만 실행한다. 이 경로는 ready marker와 현재 CNPG/Redis/Kafka 준비 상태를
-확인한 뒤 Grafana 관리자 인증·security-audit 계정, Web DNS/HTTPS, 최종 상태를
+확인한 뒤 Web DNS/HTTPS, Grafana 관리자 인증·security-audit 계정, 최종 상태를
 검사한다. Terraform DEV Apply, 데이터 재복원, GitOps bootstrap은 실행하지 않는다.
 Grafana 관리자 Secret 인증이 401이고 기본 admin 계정인 경우 기존 Secret 값을
 표준입력으로 Grafana CLI에 전달해 DB 비밀번호를 동기화하고 인증을 재검증한다.

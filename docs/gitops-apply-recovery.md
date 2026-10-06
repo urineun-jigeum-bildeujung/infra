@@ -23,8 +23,8 @@ Grafana 관리자 Secret 기본값은 GitOps와 같은 `grafana-admin-credential
 `GRAFANA_ADMIN_PASSWORD_MIN_LENGTH`로 변경할 수 있다.
 빈 계정/비밀번호와 기본 admin/admin 및 개행 문자는 차단하며, Grafana 계정 복구 단계에서
 실제 로그인 성공을 확인한다. 이 변경은 AWS Secret의 비밀번호를 변경하지 않는다.
-Grafana 단계에서 실패했다면 `./tapply.sh --finish`로 Grafana ALB/DNS/HTTPS 검증부터
-다시 실행한다. 이 경로는 전체 Terraform apply와 데이터 복원을 반복하지 않는다.
+Grafana 단계에서 실패했다면 `./tapply.sh --finish`로 Web DNS/HTTPS를 먼저 복구한 뒤
+Grafana ALB/DNS/HTTPS 검증을 다시 실행한다. 이 경로는 전체 Terraform apply와 데이터 복원을 반복하지 않는다.
 기존 복원 완료 확인과 현재 데이터 검증은 유지한다.
 
 ## 최신 코드와 추천 IAM 정합성
